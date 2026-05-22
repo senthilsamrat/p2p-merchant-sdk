@@ -1,0 +1,85 @@
+{
+  "name": "@plantmewallet/merchant-sdk",
+  "version": "0.2.1-beta.0",
+  "description": "Official TypeScript SDK for the PlantMe Wallet merchant API. HMAC-signed REST and WebSocket access to orders, trades, wallets, market data, and SaaS multi-tenant end-user operations.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./stream": {
+      "types": "./dist/stream/index.d.ts",
+      "default": "./dist/stream/index.js"
+    },
+    "./webhooks": {
+      "types": "./dist/webhooks/verify.d.ts",
+      "default": "./dist/webhooks/verify.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm test",
+    "test:staging": "vitest run --config vitest.config.staging.ts",
+    "test:staging:smoke": "vitest run --config vitest.config.staging.ts --dir tests-staging/smoke",
+    "test:staging:transport": "vitest run --config vitest.config.staging.ts --dir tests-staging/transport",
+    "test:staging:error-mapping": "vitest run --config vitest.config.staging.ts --dir tests-staging/error-mapping",
+    "test:staging:edge-cases": "vitest run --config vitest.config.staging.ts --dir tests-staging/edge-cases",
+    "test:staging:security": "vitest run --config vitest.config.staging.ts --dir tests-staging/security",
+    "test:staging:stream": "vitest run --config vitest.config.staging.ts --dir tests-staging/stream",
+    "test:staging:dx": "vitest run --config vitest.config.staging.ts --dir tests-staging/dx",
+    "test:staging:cleanup": "tsx tests-staging/cleanup.ts",
+    "quickstart": "tsx tests-staging/quickstart.ts"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "ws": "^8.20.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.12",
+    "dotenv": "^17.4.2",
+    "express": "^4.19.2",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/plantmewallet/merchant-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/plantmewallet/merchant-sdk/issues"
+  },
+  "homepage": "https://github.com/plantmewallet/merchant-sdk#readme",
+  "keywords": [
+    "plantmewallet",
+    "merchant",
+    "merchant-api",
+    "p2p-trading",
+    "cryptocurrency",
+    "trading-bot",
+    "sdk",
+    "typescript",
+    "hmac",
+    "webhooks",
+    "websocket",
+    "saas",
+    "multi-tenant",
+    "fintech"
+  ]
+}

@@ -25,6 +25,18 @@ import type {
 
 const FUND_USER_PATH = '/api/v1/merchant/wallet/fund-user';
 
+// Helper that injects X-PM-Acting-User without clobbering caller-supplied
+// extras. SDK-managed headers always win in the transport, so this is safe.
+function withActingUser(opts: RequestOptions, userId: string): RequestOptions {
+  return {
+    ...opts,
+    extraHeaders: {
+      ...(opts.extraHeaders ?? {}),
+      'X-PM-Acting-User': userId
+    }
+  };
+}
+
 export class PlatformWalletResource {
   constructor(private readonly http: HttpTransport) {}
 
@@ -92,7 +104,11 @@ export class PlatformWalletResource {
       );
     }
 
-    const merged: RequestOptions = { ...opts };
+    // The recipient is the end-user this call acts on, so it names the
+    // acting user. The server treats fund-user as a per-end-user route and
+    // refuses the call outright when the header is absent, and it runs the
+    // cross-tenant and account-state gates against whoever the header names.
+    const merged: RequestOptions = withActingUser(opts, input.toUserId);
     if (merged.idempotencyKey === undefined) {
       merged.idempotencyKey = input.idempotencyKey ?? generateIdempotencyKey();
     }

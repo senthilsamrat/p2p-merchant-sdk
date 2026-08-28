@@ -1,5 +1,7 @@
 // Exponential backoff with full jitter, capped at 30s. Idempotency-Key
 // makes POST/PATCH/PUT/DELETE retry-safe so we treat all methods the same.
+// The attempt budget is shared across every retry reason, so a request that
+// mixes transient failures still stops at maxRetries.
 
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -34,6 +36,30 @@ export function isRetryableStatus(status: number | undefined): boolean {
   if (status === undefined) return false;
   if (status === 429) return true;
   return status >= 500 && status <= 599;
+}
+
+// Conflict codes that mean the money movement is still settling upstream
+// rather than that it was refused. The body carries no transfer or
+// withdrawal id yet, so the outcome only becomes readable by presenting the
+// same Idempotency-Key again. Every other 409 is decided state, and retrying
+// one would only delay a terminal error the caller needs to see.
+const RETRYABLE_CONFLICT_CODES = new Set([
+  'TRANSFER_IN_PROGRESS',
+  'WITHDRAWAL_IN_PROGRESS'
+]);
+
+// An idempotency key is required before a 409 may be replayed. The key is what
+// makes the second attempt land on the record the first attempt already
+// opened; without one the replay would be an independent request and could
+// move funds twice.
+export function isRetryableConflict(args: {
+  status: number | undefined;
+  code: string | undefined;
+  idempotencyKey: string | undefined;
+}): boolean {
+  if (args.status !== 409) return false;
+  if (args.idempotencyKey === undefined) return false;
+  return args.code !== undefined && RETRYABLE_CONFLICT_CODES.has(args.code);
 }
 
 // Compute the next delay. Honour Retry-After when provided since the server

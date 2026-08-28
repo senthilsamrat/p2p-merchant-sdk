@@ -3,7 +3,8 @@
 // - Inject Idempotency-Key on mutating methods.
 // - Adjust timestamp for measured server-clock drift.
 // - Translate axios errors into typed SDK errors.
-// - Retry network failures, 429s, and 5xx with exponential backoff + jitter.
+// - Retry network failures, 429s, 5xx, and still-settling 409s with
+//   exponential backoff + jitter.
 //
 // Critical contract: the body must be serialized once on the SDK side and
 // passed to axios as a string with the correct Content-Type so axios does
@@ -24,6 +25,7 @@ import { generateIdempotencyKey, requiresIdempotencyKey } from './idempotency.js
 import {
   computeDelayMs,
   delay,
+  isRetryableConflict,
   isRetryableNetworkCode,
   isRetryableStatus,
   parseRetryAfter,
@@ -170,7 +172,17 @@ export class HttpTransport {
         }
 
         // Non-2xx. Decide whether to retry or throw a typed error.
-        if (isRetryableStatus(status) && attempt < this.config.retry.maxRetries) {
+        // A 409 is only replayable when the server names it as still-settling
+        // money and the same Idempotency-Key goes back out, so the body is
+        // read for the code on that status alone.
+        const retryable =
+          isRetryableStatus(status) ||
+          isRetryableConflict({
+            status,
+            code: status === 409 ? safeJson(response.data)?.code : undefined,
+            idempotencyKey
+          });
+        if (retryable && attempt < this.config.retry.maxRetries) {
           const retryAfterMs = parseRetryAfter(response.headers['retry-after']);
           const wait = computeDelayMs({
             attempt,

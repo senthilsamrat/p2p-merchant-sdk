@@ -177,10 +177,19 @@ The SDK retries automatically on:
 - network failures (`ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `EPIPE`)
 - 5xx responses
 - 429 responses (using `Retry-After` when present)
+- 409 `TRANSFER_IN_PROGRESS` / `WITHDRAWAL_IN_PROGRESS` (using `Retry-After`
+  when present)
 
 Exponential backoff with full jitter, capped at 30s. Idempotency-Key makes
 mutating retries safe. Tune via `maxRetries`, `retryBaseDelayMs`,
 `retryMaxDelayMs`.
+
+The two 409 codes mean the money movement is still settling upstream and the
+response carries no transfer or withdrawal id yet. The SDK replays the request
+on the same Idempotency-Key, so the retry reads the outcome of the call that is
+already in flight rather than starting a second one; it never retries a 409
+without a key. Every other 409, including `IDEMPOTENCY_KEY_CONFLICT`, is
+decided state and is raised to the caller immediately.
 
 ## Rate limits
 

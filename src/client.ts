@@ -37,7 +37,8 @@ export interface MerchantClientOptions {
   recvWindow?: number;
   // Request timeout in ms. Default 10000.
   timeout?: number;
-  // Max retry attempts for retryable errors (5xx, network, 429). Default 3.
+  // Max retry attempts for retryable errors (5xx, network, 429, and 409s the
+  // server marks as still settling). Default 3.
   maxRetries?: number;
   // Base delay for exponential backoff. Default 250ms.
   retryBaseDelayMs?: number;

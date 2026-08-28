@@ -4,6 +4,7 @@
 
 import type { HttpTransport } from '../transport/httpTransport.js';
 import type { PaymentMethod, RequestOptions } from '../types/common.js';
+import { expectObject, normalizePaymentMethod } from '../utils/response.js';
 
 const BASE = '/api/v1/merchant';
 
@@ -18,16 +19,22 @@ export class PaymentMethodsResource {
    *
    * @param opts - Per-request transport overrides.
    * @returns Array of payment methods (empty when none are verified).
-   * @throws AuthenticationError when the API key lacks `payment_methods:read`.
+   * @throws PermissionDeniedError when the API key lacks `account:read`.
    * @example
    * const methods = await client.paymentMethods.list();
-   * methods.forEach(m => console.log(m.id, m.type, m.maskedAccount));
+   * methods.forEach(m => console.log(m.id, m.methodType, m.maskedAccount));
    */
   async list(opts: RequestOptions = {}): Promise<PaymentMethod[]> {
-    const envelope = await this.http.request<{ methods: PaymentMethod[] }>(
+    const response = await this.http.request<unknown>(
       { method: 'GET', path: `${BASE}/payment-methods` },
       opts
     );
-    return Array.isArray(envelope?.methods) ? envelope.methods : [];
+    const envelope = expectObject(response, 'list payment methods response');
+    if (!Array.isArray(envelope.methods)) {
+      throw new Error('Invalid list payment methods response: expected methods array');
+    }
+    return envelope.methods.map((method, index) =>
+      normalizePaymentMethod(method, `list payment methods response.methods[${index}]`)
+    );
   }
 }

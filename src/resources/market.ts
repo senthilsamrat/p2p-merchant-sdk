@@ -11,6 +11,7 @@ import type {
   ReferencePrice,
   RequestOptions
 } from '../types/common.js';
+import { normalizeBestPrices } from '../utils/response.js';
 
 const BASE = '/api/v1/merchant/market';
 
@@ -33,13 +34,14 @@ export class MarketResource {
     fiat: string,
     opts: RequestOptions = {}
   ): Promise<BestPrices> {
-    return this.http.request<BestPrices>(
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
         path: `${BASE}/best-prices/${encodeURIComponent(crypto)}/${encodeURIComponent(fiat)}`
       },
       opts
     );
+    return normalizeBestPrices(response);
   }
 
   /**
@@ -47,7 +49,7 @@ export class MarketResource {
    *
    * @param crypto - Crypto asset ticker.
    * @param fiat - Fiat currency code.
-   * @param opts - Filters: `type` (`buy`/`sell`) and `limit`.
+   * @param opts - Required side (`type`: `buy`/`sell`) and optional `limit`.
    * @param requestOpts - Per-request transport overrides.
    * @returns Array of active marketplace ads.
    * @throws NotImplementedError when the endpoint is still stubbed.
@@ -55,7 +57,7 @@ export class MarketResource {
   async getActiveAds(
     crypto: string,
     fiat: string,
-    opts: { type?: 'buy' | 'sell'; limit?: number } = {},
+    opts: { type: 'buy' | 'sell'; limit?: number },
     requestOpts: RequestOptions = {}
   ): Promise<MarketAd[]> {
     return this.http.request<MarketAd[]>(

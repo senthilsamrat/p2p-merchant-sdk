@@ -73,7 +73,9 @@ app.post('/kyc-vendor/callback', async (req: Request, res: Response) => {
 
 // Convenience read so operators can poll the resulting status.
 app.get('/kyc-vendor/status/:vendorUserId', async (req: Request, res: Response) => {
-  const plantmeUserId = externalToPlantmeUserId.get(req.params.vendorUserId);
+  const rawVendorUserId = req.params.vendorUserId;
+  const vendorUserId = Array.isArray(rawVendorUserId) ? rawVendorUserId[0] : rawVendorUserId;
+  const plantmeUserId = externalToPlantmeUserId.get(vendorUserId);
   if (!plantmeUserId) {
     res.status(404).json({ error: 'unknown_vendor_user' });
     return;

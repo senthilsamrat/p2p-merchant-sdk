@@ -2,7 +2,7 @@
 
 Official JavaScript / TypeScript SDK for the PlantMe Wallet Merchant API.
 
-`v0.2.1-beta.0` ships the REST surface (HMAC-signed access to orders, trades,
+`v0.3.0-beta.0` ships the REST surface (HMAC-signed access to orders, trades,
 wallet, market data, payment methods, webhook configuration, analytics, and
 server-time sampling), the SaaS Platform namespace (`client.platform.users(uid)`)
 for per-end-user wallet, order, trade, KYC, marketplace, and fund-user flows,
@@ -37,7 +37,9 @@ const order = await client.orders.create({
   fiatCurrency: 'KRW',
   amount: '100.00000000',
   price: '1320.50',
-  paymentMethodIds: ['pm_xxx']
+  paymentMethods: ['Bank Transfer'],
+  // Listing expires after 60 minutes; valid range is 15..43200.
+  timeLimit: 60
 });
 
 for await (const trade of client.trades.listAll({ status: 'completed' })) {
@@ -238,7 +240,7 @@ const { secret } = await client.webhooks.regenerateSecret(); // returned ONCE
 | `client.account`      | `get`                                                        |
 | `client.availability` | `update`                                                     |
 | `client.orders`       | `create`, `list`, `get`, `update`, `cancel`, `listAll`       |
-| `client.trades`       | `get`, `list`, `markPaymentSent`, `confirmPayment`, `release`, `cancel`, `openDispute`, `sendMessage`, `listMessages`, `switchMerchant`, `listAll` |
+| `client.trades`       | `get`, `list`, `markPaymentSent`, `confirmPayment`, `release`, `cancel`, `openDispute`, `sendMessage`, `listMessages`, `listAll` |
 | `client.wallet`       | `getBalance`, `getHolds`                                     |
 | `client.market`       | `getBestPrices`, `getActiveAds`, `getReferencePrice`, `getMyRank` |
 | `client.paymentMethods` | `list`                                                     |
@@ -279,7 +281,9 @@ const order = await client.platform.users(user.userId).orders.create({
   fiatCurrency: 'KRW',
   amount: '100.00000000',
   price: '1320.50',
-  paymentMethodIds: ['pm_xxx']
+  paymentMethods: ['Bank Transfer'],
+  // Listing lifetime in minutes, not the resulting trade's payment window.
+  timeLimit: 60
 });
 const kyc = await client.platform.users(user.userId).kyc.get();
 
@@ -315,7 +319,7 @@ const proposal = await client.platform.revshare.createProposal({
 | `client.platform.users`                | `create`, `list`, `listAll`, callable as `users(uid)` for the scoped sub-client        |
 | `client.platform.users(uid)`           | `get`, `update`, `suspend`, `restore`, `softDelete`                                    |
 | `client.platform.users(uid).orders`    | `create`, `list`, `get`, `update`, `cancel`                                            |
-| `client.platform.users(uid).trades`    | `list`, `get`, `markPaymentSent`, `confirmPayment`, `cancel`, `sendMessage`            |
+| `client.platform.users(uid).trades`    | `list`, `get`, `markPaymentSent`, `confirmPayment`, `cancel`, `switchMerchant`, `sendMessage` |
 | `client.platform.users(uid).wallet`    | `getBalance`, `getHolds`, `getLedger`, `transfer`, `withdraw`, `getDepositAddress`     |
 | `client.platform.users(uid).paymentMethods` | `list`, `add`, `remove`                                                           |
 | `client.platform.users(uid).kyc`       | `start`, `get`                                                                         |
@@ -338,7 +342,7 @@ Runnable examples:
 ## Versioning
 
 The package follows semver from `1.0.0` onward. Until then betas may break
-the public surface; pin `~0.2.1-beta` to opt out of incidental changes.
+the public surface; pin `~0.3.0-beta` to opt out of incidental changes.
 
 ## License
 

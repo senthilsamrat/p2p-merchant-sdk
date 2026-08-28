@@ -5,9 +5,19 @@ import type {
   Paginated,
   RequestOptions,
   UpdateWebhookConfigInput,
+  UpdateWebhookConfigResult,
   WebhookConfig,
   WebhookLogEntry
 } from '../types/common.js';
+import {
+  expectObject,
+  normalizeWebhookConfig,
+  normalizeWebhookLog,
+  nullableString,
+  optionalString,
+  requiredString,
+  unwrapObject
+} from '../utils/response.js';
 
 const BASE = '/api/v1/merchant/webhooks';
 
@@ -21,9 +31,12 @@ export class WebhooksResource {
    * @returns Webhook delivery URL, subscribed event filters, and status.
    */
   async getConfig(opts: RequestOptions = {}): Promise<WebhookConfig> {
-    return this.http.request<WebhookConfig>(
+    const response = await this.http.request<unknown>(
       { method: 'GET', path: `${BASE}/config` },
       opts
+    );
+    return normalizeWebhookConfig(
+      unwrapObject(response, 'get webhook configuration response', ['webhook'])
     );
   }
 
@@ -40,11 +53,26 @@ export class WebhooksResource {
   async updateConfig(
     input: UpdateWebhookConfigInput,
     opts: RequestOptions = {}
-  ): Promise<WebhookConfig> {
-    return this.http.request<WebhookConfig>(
+  ): Promise<UpdateWebhookConfigResult> {
+    const response = await this.http.request<unknown>(
       { method: 'PUT', path: `${BASE}/config`, body: input },
       opts
     );
+    const outer = expectObject(response, 'update webhook configuration response');
+    const config = normalizeWebhookConfig(
+      unwrapObject(outer, 'update webhook configuration response', ['webhook'])
+    );
+    const secret = optionalString(outer.secret, 'update webhook configuration response.secret');
+    const secretWarning = optionalString(
+      outer.secretWarning,
+      'update webhook configuration response.secretWarning'
+    );
+    return {
+      ...config,
+      message: requiredString(outer, 'message', 'update webhook configuration response'),
+      ...(secret !== undefined ? { secret } : {}),
+      ...(secretWarning !== undefined ? { secretWarning } : {})
+    };
   }
 
   /**
@@ -81,22 +109,40 @@ export class WebhooksResource {
    * @returns A page of delivery log entries with `hasMore` indicator.
    */
   async getLogs(
-    opts: { limit?: number; status?: string } = {},
+    opts: { limit?: number; status?: string; before?: string } = {},
     requestOpts: RequestOptions = {}
   ): Promise<Paginated<WebhookLogEntry>> {
-    const raw = await this.http.request<WebhookLogEntry[] | Paginated<WebhookLogEntry>>(
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
         path: `${BASE}/logs`,
-        query: { limit: opts.limit, status: opts.status }
+        query: { limit: opts.limit, status: opts.status, before: opts.before }
       },
       requestOpts
     );
-    if (Array.isArray(raw)) {
-      const hasMore = opts.limit !== undefined ? raw.length >= opts.limit : false;
-      return { items: raw, hasMore };
+    if (Array.isArray(response)) {
+      const items = response.map((log, index) =>
+        normalizeWebhookLog(log, `webhook logs response[${index}]`)
+      );
+      const hasMore = opts.limit !== undefined ? items.length >= opts.limit : false;
+      return { items, hasMore };
     }
-    return raw;
+    const envelope = expectObject(response, 'webhook logs response');
+    if (!Array.isArray(envelope.logs)) {
+      throw new Error('Invalid webhook logs response: expected logs array');
+    }
+    const pagination = expectObject(envelope.pagination, 'webhook logs response.pagination');
+    const nextCursor = nullableString(
+      pagination.nextCursor,
+      'webhook logs response.pagination.nextCursor'
+    );
+    return {
+      items: envelope.logs.map((log, index) =>
+        normalizeWebhookLog(log, `webhook logs response.logs[${index}]`)
+      ),
+      hasMore: nextCursor !== null,
+      ...(nextCursor !== null ? { nextCursor } : {})
+    };
   }
 
   /**
@@ -130,15 +176,14 @@ export class WebhooksResource {
    * @param eventType - Event name to simulate (e.g., `trade.completed`).
    * @param payload - Optional payload body to deliver.
    * @param opts - Per-request transport overrides.
-   * @returns Delivery result with `delivered` flag and optional `statusCode`.
-   * @throws NotImplementedError when the endpoint is still stubbed.
+   * @returns The service acknowledgement after the test event is dispatched.
    */
   async test(
     eventType: string,
     payload: unknown = {},
     opts: RequestOptions = {}
-  ): Promise<{ delivered: boolean; statusCode?: number }> {
-    return this.http.request(
+  ): Promise<{ success: true; message: string }> {
+    return this.http.request<{ success: true; message: string }>(
       {
         method: 'POST',
         path: `${BASE}/test`,

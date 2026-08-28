@@ -112,8 +112,8 @@ describe('client.platform.users(userId).paymentMethods.list', () => {
     const { client, captured } = buildClient([
       ok({
         methods: [
-          { id: 'pm_1', type: 'bank_transfer', accountName: 'Alice', accountNumber: '****1234' },
-          { id: 'pm_2', type: 'bank_transfer', accountName: 'Alice', accountNumber: '****5678' }
+          { id: 'pm_1', methodType: 'bank_transfer', maskedAccount: '****1234', bankName: 'Bank', isVerified: true, readyForTrading: true, isDefault: true, createdAt: null },
+          { id: 'pm_2', methodType: 'bank_transfer', maskedAccount: '****5678', bankName: 'Bank', isVerified: true, readyForTrading: true, isDefault: false, createdAt: null }
         ]
       })
     ]);
@@ -127,7 +127,7 @@ describe('client.platform.users(userId).paymentMethods.list', () => {
   });
 
   it('passes a bare array through unchanged', async () => {
-    const { client } = buildClient([ok([{ id: 'pm_bare', type: 'bank_transfer' }])]);
+    const { client } = buildClient([ok([{ id: 'pm_bare', methodType: 'bank_transfer', maskedAccount: null, bankName: null, isVerified: true, readyForTrading: true, isDefault: true, createdAt: null }])]);
 
     const methods = await client.platform.users('user_a').paymentMethods.list();
 
@@ -135,10 +135,12 @@ describe('client.platform.users(userId).paymentMethods.list', () => {
     expect(methods[0].id).toBe('pm_bare');
   });
 
-  it('yields an empty array when the envelope carries no methods', async () => {
+  it('rejects a malformed methods envelope at the HTTP trust boundary', async () => {
     const { client } = buildClient([ok({ methods: null })]);
 
-    expect(await client.platform.users('user_a').paymentMethods.list()).toEqual([]);
+    await expect(client.platform.users('user_a').paymentMethods.list()).rejects.toThrow(
+      /expected methods array/i
+    );
   });
 });
 

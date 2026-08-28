@@ -114,13 +114,14 @@ export interface ScopedWalletBalance {
 }
 
 export interface ScopedWalletHold {
-  holdId: string;
+  id: string;
   currency: string;
   amount: string;
   reason: string;
-  tradeId?: string;
+  tradeId: string | null;
+  escrowId: string | null;
   createdAt: string;
-  expiresAt?: string;
+  expiresAt: string | null;
 }
 
 export interface ScopedLedgerEntry {
@@ -241,13 +242,17 @@ export interface DepositAddress {
 // Per-end-user payment methods. The platform owns the bank-account record
 // on behalf of its end-users; the SaaS API surfaces add/list/remove.
 export interface ScopedPaymentMethod {
-  paymentMethodId: string;
-  type: string;
-  bank?: string;
-  accountNumberMasked?: string;
-  accountHolder?: string;
-  verified: boolean;
-  createdAt: string;
+  id: string;
+  methodType: string;
+  label?: string;
+  maskedAccount: string | null;
+  bankName: string | null;
+  isVerified: boolean;
+  readyForTrading: boolean;
+  country?: string;
+  currency?: string;
+  isDefault: boolean;
+  createdAt: string | null;
 }
 
 // Marketplace publishing state for a single end-user. Mirrors the response

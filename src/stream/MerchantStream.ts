@@ -1,7 +1,7 @@
 // MerchantStream: WebSocket client for the merchant event stream.
 // Owns a single WebSocket lifecycle: handshake, session.start, event
 // dispatch, system frames, reconnect with backoff and jitter, dedup via
-// the client-side ResumeBuffer, and resume hints via Last-Event-Id on
+// the client-side ResumeBuffer, and resume hints via numeric resumeAfter on
 // reconnect. Inbound API only; the server only accepts ping/pong.
 //
 // Behavior contract (kept aligned with merchant-service/src/websocket):
@@ -28,8 +28,8 @@
 //       1011 SERVER_ERROR           -> exponential backoff
 //       4000 NORMAL                 -> NO reconnect (clean close)
 //       other                       -> exponential backoff
-//   - Resume: on each reconnect, include Last-Event-Id header carrying the
-//     last eventId we saw. If server returns system.resume_unavailable,
+//   - Resume: on each reconnect, include the last server sequence as the
+//     resumeAfter query parameter. If server returns system.resume_unavailable,
 //     emit a structured error so the caller can reconcile via REST.
 
 import { EventEmitter } from 'node:events';
@@ -259,6 +259,11 @@ export class MerchantStream extends EventEmitter {
     this.closedByCaller = true;
     this.clearReconnectTimer();
     this.clearInactivityTimer();
+    this.failPendingConnect(
+      new MerchantSdkError('Connection closed by caller before session.start', {
+        code: 'CLOSED_BY_CALLER',
+      }),
+    );
 
     if (this.state === 'closed' || this.state === 'idle') {
       this.state = 'closed';
@@ -318,13 +323,12 @@ export class MerchantStream extends EventEmitter {
     this.sessionEstablished = false;
     this.sessionId = null;
 
-    // Build the URL. Server matches on path only so a trailing query is fine
-    // for resume-after-N, but we use the Last-Event-Id header form by default.
-    const url = `${this.baseUrl}${WS_PATH}`;
+    // The service's replay buffer is keyed by numeric sequence, not UUID
+    // eventId. Keep eventIds for client-side dedup and send the last sequence
+    // as the explicit resumeAfter query cursor.
+    const lastSequence = this.resumeBuffer.getLastSequence();
+    const url = `${this.baseUrl}${WS_PATH}${lastSequence >= 0 ? `?resumeAfter=${lastSequence}` : ''}`;
 
-    // Build handshake headers. resumeFromEventId carries the last-known
-    // eventId from the dedup buffer when present.
-    const lastEventId = this.resumeBuffer.getLastEventId();
     let rawHeaders;
     try {
       rawHeaders = buildHandshakeHeaders({
@@ -332,7 +336,6 @@ export class MerchantStream extends EventEmitter {
         hmacSecret: this.hmacSecret,
         recvWindowMs: this.opts.recvWindow,
         clockDriftMs: this.opts.clockDriftMs,
-        resumeFromEventId: lastEventId ?? undefined,
       });
     } catch (err) {
       // Synchronous failure to build the signature is a permanent error;
@@ -408,7 +411,7 @@ export class MerchantStream extends EventEmitter {
       this.emit('error', err);
     });
 
-    ws.on('unexpected-response', (_req, res) => {
+    ws.on('unexpected-response', (upgradeRequest, res) => {
       // Server rejected the upgrade with a non-101 HTTP response. Translate
       // common statuses to typed errors so the caller can branch.
       const status = res.statusCode ?? 0;
@@ -432,13 +435,33 @@ export class MerchantStream extends EventEmitter {
       // Drain the response body to free the socket.
       res.resume();
       this.emit('error', err);
-      // Treat as a permanent failure for the connect() promise. The close
-      // event will follow and may also trigger reconnect logic; the
-      // failPendingConnect call here ensures the caller sees the typed error.
-      this.failPendingConnect(err);
+      // Registering unexpected-response makes this listener responsible for
+      // aborting the ws handshake. Transition through the same close path used
+      // by established sockets so 401/403 are permanent, while 5xx responses
+      // retain reconnect/backoff behavior. Handle synchronously and guard the
+      // later ws close event below to avoid a double transition.
+      try {
+        upgradeRequest.destroy();
+      } catch {
+        // best effort; terminate() below also aborts a CONNECTING socket
+      }
+      try {
+        ws.terminate();
+      } catch {
+        // handleClose still resets state even if ws has already torn down
+      }
+      const closeCode = status === 401
+        ? CLOSE.AUTH_FAILED
+        : status === 403
+          ? CLOSE.PERMISSION_DENIED
+          : status >= 500
+            ? CLOSE.SERVER_ERROR
+            : CLOSE.ABNORMAL_CLOSE;
+      this.handleClose(closeCode, `HTTP ${status} upgrade rejection`, err);
     });
 
     ws.on('close', (code: number, reasonBuf: Buffer) => {
+      if (this.ws !== ws) return;
       const reasonText = reasonBuf?.toString('utf8') || undefined;
       this.handleClose(code, reasonText);
     });
@@ -529,10 +552,9 @@ export class MerchantStream extends EventEmitter {
           this.terminateAbnormal();
           return;
         }
-        // New session: reset dedup buffer because per-socket sequence resets
-        // server-side too. Replay events that belong to the previous
-        // connection have already been consumed via the resume hint.
-        this.resumeBuffer.clear();
+        // Preserve both the numeric replay cursor and event-id dedup state.
+        // Replay frames arrive after session.start, so clearing here would
+        // duplicate already-consumed events and lose the next reconnect point.
         this.sessionId = sid;
         this.sessionEstablished = true;
         this.reconnectAttempt = 0;
@@ -559,6 +581,7 @@ export class MerchantStream extends EventEmitter {
       }
       case 'system.resume_unavailable': {
         // Server-side buffer evicted our cursor. Caller MUST reconcile.
+        this.resumeBuffer.resetSequence();
         this.emit('system', obj);
         this.emit('error', new ResumeUnavailableError());
         return;
@@ -587,20 +610,29 @@ export class MerchantStream extends EventEmitter {
   private handleEventFrame(obj: Record<string, unknown>): void {
     const eventType = obj.eventType as string;
     const eventId = typeof obj.eventId === 'string' ? obj.eventId : null;
-    const sequence = typeof obj.sequence === 'number' ? obj.sequence : null;
-    const timestamp = typeof obj.timestamp === 'number' ? obj.timestamp : Date.now();
+    const sequence = typeof obj.sequence === 'number'
+      && Number.isSafeInteger(obj.sequence)
+      && obj.sequence > 0
+      ? obj.sequence
+      : null;
+    const timestamp = obj.timestamp === undefined
+      ? Date.now()
+      : typeof obj.timestamp === 'number' && Number.isFinite(obj.timestamp)
+        ? obj.timestamp
+        : null;
     const replay = obj.replay === true;
     const data = obj.data;
 
     // Strict event shape. eventId and sequence are required by the contract.
-    if (!eventId || sequence === null) {
+    if (!eventId || sequence === null || timestamp === null) {
       this.emit(
         'error',
-        new MerchantSdkError('Event frame missing eventId or sequence', {
+        new MerchantSdkError('Event frame has invalid eventId, sequence, or timestamp', {
           code: 'PROTOCOL_VIOLATION',
           details: { eventType },
         }),
       );
+      this.terminateAbnormal();
       return;
     }
 
@@ -610,21 +642,22 @@ export class MerchantStream extends EventEmitter {
       return;
     }
 
-    // Sequence integrity check. Replays may legitimately go backwards (the
-    // server resends events with their original sequence). For non-replay
-    // frames, gaps indicate in-flight loss and the caller may want to
-    // reconcile. We surface but do not close; the server-side resume
-    // buffer normally covers this on the next reconnect.
+    // The resume cursor is a contiguous commit point, never merely the
+    // largest sequence observed. If N+1 arrives before N, close before
+    // dispatching or recording it so reconnect asks the server to replay from
+    // the last contiguous sequence and delivers N..N+1 exactly once.
     const last = this.resumeBuffer.getLastSequence();
-    if (!replay && last >= 0 && sequence !== last + 1) {
-      if (sequence > last + 1) {
-        this.emit('error', new SequenceGapError(last + 1, sequence));
-        // Continue dispatching anyway; surfacing the gap is the contract.
-      } else if (sequence <= last) {
-        // Out-of-order event with a sequence we've already passed but
-        // haven't seen the eventId for. Treat as a server-side dedup gap;
-        // forward the event but do not bump last sequence backwards.
-      }
+    if (last >= 0 && sequence > last + 1) {
+      this.emit('error', new SequenceGapError(last + 1, sequence));
+      this.terminateAbnormal();
+      return;
+    }
+    if (last >= 0 && sequence <= last) {
+      // An overlapping replay may outlive the in-memory event-id window. The
+      // contiguous cursor proves this sequence was already committed, so it
+      // must not be emitted a second time.
+      this.resumeBuffer.add(eventId);
+      return;
     }
 
     // Record dedup state. Bump the high-water sequence only if this advances it.
@@ -646,7 +679,11 @@ export class MerchantStream extends EventEmitter {
     this.emit(eventType, event);
   }
 
-  private handleClose(code: number, reasonText: string | undefined): void {
+  private handleClose(
+    code: number,
+    reasonText: string | undefined,
+    connectionError?: Error,
+  ): void {
     // Snapshot the prior state so we can decide whether reconnect is wanted.
     const wasOpen = this.state === 'open';
     this.state = 'closed';
@@ -675,8 +712,8 @@ export class MerchantStream extends EventEmitter {
 
     // For permanent failure during the initial handshake, reject the pending
     // connect() promise with a typed error.
-    if (this.pendingConnect && (NO_RECONNECT_CODES.has(code) || !this.opts.reconnect)) {
-      const err = this.makeCloseError(code, reasonText);
+    if (this.pendingConnect && !willReconnect) {
+      const err = connectionError || this.makeCloseError(code, reasonText);
       const p = this.pendingConnect;
       this.pendingConnect = null;
       p.reject(err);
@@ -707,9 +744,8 @@ export class MerchantStream extends EventEmitter {
       // Drop session identity so isConnected() returns false going forward.
       this.sessionEstablished = false;
       this.sessionId = null;
-      // Important: keep resume buffer dedup state across non-reconnect closes
-      // in case the caller manually calls connect() again; clear() runs on
-      // the next session.start anyway.
+      // Keep resume and dedup state across non-reconnect closes in case the
+      // caller manually connects again.
       return;
     }
 

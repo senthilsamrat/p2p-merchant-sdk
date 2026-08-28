@@ -5,9 +5,8 @@
 // best-effort replay storm.
 //
 // Backed by an insertion-ordered Set so eviction is O(1). Last-sequence is
-// tracked separately because sequence numbers can repeat across reconnects
-// to the same apiKeyId (server resets per-socket lastSentSeq on each
-// connection) and the eventId Set is the authoritative dedup signal.
+// tracked separately as the service's per-apiKey replay cursor, while the
+// eventId Set remains the authoritative duplicate-delivery guard.
 
 const DEFAULT_MAX_SIZE = 200;
 
@@ -67,10 +66,18 @@ export class ResumeBuffer {
     }
   }
 
-  // Drop all dedup state. Called on session.start so a new sessionId starts
-  // with a clean slate; the server resets per-socket sequence to 0.
+  // Drop all dedup and cursor state when the caller explicitly needs a fresh
+  // stream history. Ordinary reconnects intentionally preserve this state.
   clear(): void {
     this.seen.clear();
+    this.lastSequence = -1;
+  }
+
+  // Drop only the replay cursor while preserving event-id deduplication.
+  // Used after system.resume_unavailable: the next connection must start
+  // live, but an overlapping event already delivered before reconciliation
+  // should still be suppressed.
+  resetSequence(): void {
     this.lastSequence = -1;
   }
 
@@ -79,9 +86,8 @@ export class ResumeBuffer {
     return this.seen.size;
   }
 
-  // Most-recently-added eventId, or null when the buffer is empty. Used by
-  // MerchantStream to populate the Last-Event-Id header on reconnect.
-  // Backed by Set's insertion-ordered iteration; the last value wins.
+  // Most-recently-added eventId, or null when the buffer is empty. Exposed for
+  // diagnostics and compatibility with the standalone handshake helper.
   getLastEventId(): string | null {
     let last: string | null = null;
     for (const id of this.seen) {

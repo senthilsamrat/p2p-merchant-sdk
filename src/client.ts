@@ -23,7 +23,7 @@ import type { StreamOptions } from './stream/types.js';
 
 const DEFAULT_BASE_URL = 'https://api.plantmewallet.com';
 const DEFAULT_TIMEOUT_MS = 10_000;
-const SDK_VERSION = '0.2.0-beta.0';
+const SDK_VERSION = '0.3.0-beta.0';
 
 export interface MerchantClientOptions {
   // Public API key identifier. pk_live_... or pk_test_...

@@ -5,15 +5,25 @@
 export type MerchantTier = 'none' | 'professional' | 'business' | 'enterprise';
 
 export type OrderType = 'buy' | 'sell';
-export type OrderStatus = 'active' | 'paused' | 'filled' | 'cancelled';
+export type OrderStatus =
+  | 'active'
+  | 'paused'
+  | 'partially_filled'
+  | 'filled'
+  | 'cancelled'
+  | 'expired'
+  | 'completed'
+  | 'suspended';
 
 export type TradeStatus =
   | 'initiated'
   | 'payment_pending'
   | 'payment_sent'
+  | 'payment_confirmed'
   | 'completed'
   | 'disputed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'switching';
 
 export type TradeSource = 'quick_trade' | 'marketplace';
 
@@ -46,29 +56,40 @@ export interface CreateOrderInput {
   // 'Bank Transfer' or 'PayNow', not identifiers. The set is validated against
   // fiatCurrency, and a value outside it is refused with the allowed list.
   paymentMethods: string[];
-  // Minutes the buyer has to pay. Required: the server rejects an order
-  // without it rather than applying a default.
+  // Listing lifetime in minutes (15..43200). When it elapses the order
+  // advertisement expires; this is not the buyer's trade-payment window.
+  // Required: the server rejects an order without it.
   timeLimit: number;
   // Optional caps and constraints. The server applies tier-based defaults
   // when omitted.
-  minAmount?: string;
-  maxAmount?: string;
+  minTradeAmount?: string;
+  maxTradeAmount?: string;
   terms?: string;
   autoReply?: string;
 }
 
-export interface UpdateOrderInput {
+export interface UpdateOrderFieldsInput {
   price?: string;
   amount?: string;
-  minAmount?: string;
-  maxAmount?: string;
-  status?: OrderStatus;
+  minTradeAmount?: string;
+  maxTradeAmount?: string;
   // Same display-name form as CreateOrderInput.
   paymentMethods?: string[];
+  // Replacement listing lifetime in minutes (15..43200), counted from the
+  // update. This does not alter any already-created trade payment window.
   timeLimit?: number;
   terms?: string;
   autoReply?: string;
+  status?: never;
 }
+
+// Lifecycle transitions are intentionally separate from field edits. This
+// prevents a generic PATCH from bypassing pause/reactivate/cancel invariants.
+export type UpdateOrderStatusInput =
+  | { status: 'active'; price?: never; amount?: never; minTradeAmount?: never; maxTradeAmount?: never; paymentMethods?: never; timeLimit?: never; terms?: never; autoReply?: never }
+  | { status: 'paused'; price?: never; amount?: never; minTradeAmount?: never; maxTradeAmount?: never; paymentMethods?: never; timeLimit?: never; terms?: never; autoReply?: never };
+
+export type UpdateOrderInput = UpdateOrderFieldsInput | UpdateOrderStatusInput;
 
 export interface ListOrdersOptions {
   status?: OrderStatus;
@@ -85,11 +106,20 @@ export interface Order {
   remainingAmount: string;
   price: string;
   status: OrderStatus;
-  minAmount?: string;
-  maxAmount?: string;
-  paymentMethodIds: string[];
+  minTradeAmount?: string;
+  maxTradeAmount?: string;
+  paymentMethods: string[];
+  timeLimit?: number;
+  terms?: string;
+  autoReply?: string;
+  expiresAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CancelOrderResult {
+  orderId: string;
+  message: string;
 }
 
 export interface ListTradesOptions {
@@ -107,34 +137,57 @@ export interface Trade {
   fiatCurrency: string;
   amount: string;
   price: string;
-  fiatAmount: string;
+  totalValue: string;
   status: TradeStatus;
   source: TradeSource;
   buyerId: string;
   sellerId: string;
+  paymentMethod: string;
   paymentMethodId?: string;
   createdAt: string;
   updatedAt: string;
-  paymentDeadline?: string;
+  expiresAt?: string;
+}
+
+export interface TradeActionResult {
+  tradeId: string;
+  status: TradeStatus;
+  source?: TradeSource;
+  amount?: string;
+  totalValue?: string;
+  paymentMethod?: string;
+  role?: 'buyer' | 'seller';
+  updatedAt?: string;
+  completedAt?: string;
+  expiresAt?: string;
+  escrowId?: string;
+  escrowStatus?: string;
+  sagaId?: string;
 }
 
 export interface Message {
   messageId: string;
   tradeId: string;
   senderId: string;
+  senderRole?: string;
   content: string;
   type: MessageType;
-  createdAt: string;
+  timestamp: string;
 }
 
 export interface ListMessagesOptions {
   limit?: number;
-  since?: number;
+  // Opaque cursor returned as nextCursor by the previous page.
+  before?: string;
 }
 
 export interface ListMessagesResponse {
   messages: Message[];
   hasMore: boolean;
+  nextCursor?: string;
+  // Kept for compatibility with older merchant-service responses. Use
+  // nextCursor for traversal; oldestMessageId is not an offset cursor.
+  oldestMessageId?: string;
 }
 
 export interface WalletBalance {
@@ -145,37 +198,42 @@ export interface WalletBalance {
 }
 
 export interface WalletHold {
-  holdId: string;
+  id: string;
   currency: string;
   amount: string;
   reason: string;
-  tradeId?: string;
+  tradeId: string | null;
+  escrowId: string | null;
   createdAt: string;
-  expiresAt?: string;
+  expiresAt: string | null;
 }
 
 export interface PaymentMethod {
-  paymentMethodId: string;
-  type: string;
-  bank?: string;
-  accountNumberMasked?: string;
-  accountHolder?: string;
-  verified: boolean;
-  createdAt: string;
+  id: string;
+  methodType: string;
+  label?: string;
+  maskedAccount: string | null;
+  bankName: string | null;
+  isVerified: boolean;
+  readyForTrading: boolean;
+  country?: string;
+  currency?: string;
+  isDefault: boolean;
+  createdAt: string | null;
 }
 
 export interface PriceQuote {
-  orderId: string;
   price: string;
-  amount: string;
-  merchantId: string;
+  lastUpdated: string;
 }
 
 export interface BestPrices {
+  crypto: string;
+  fiat: string;
   bestBuy: PriceQuote | null;
   bestSell: PriceQuote | null;
-  spread: string;
-  spreadPercent: string;
+  spread: string | null;
+  spreadPercent: string | null;
 }
 
 export interface MarketAd {
@@ -207,40 +265,54 @@ export interface RankInfo {
 
 export interface AnalyticsStats {
   window: string;
-  totalTrades: number;
-  completedTrades: number;
-  cancelledTrades: number;
-  disputedTrades: number;
-  completionRate: number;
-  averageReleaseSeconds: number;
-  volume: Record<string, string>;
-  fees: Record<string, string>;
+  tradeCount: number | null;
+  completionRate: number | null;
+  volumeUsdt: string;
+  revenueUsdt: string | null;
+  avgTradeTimeSeconds: number | null;
+  disputeRate: number | null;
+  topCurrencies: Array<{ code: string; volumeUsdt: string }>;
+  gaps?: string[];
 }
 
 export interface WebhookConfig {
-  url?: string;
+  url: string | null;
   events: string[];
   active: boolean;
+  retryEnabled?: boolean;
+  maxRetries?: number;
+  headers?: Record<string, string>;
+  secretMasked?: string | null;
+  successCount?: number;
   failureCount?: number;
-  lastSuccessAt?: string;
-  lastFailedAt?: string;
+  lastDeliveredAt?: string | null;
 }
 
 export interface UpdateWebhookConfigInput {
   url?: string;
   events?: string[];
   active?: boolean;
+  retryEnabled?: boolean;
+  maxRetries?: number;
+  headers?: Record<string, string>;
+}
+
+export interface UpdateWebhookConfigResult extends WebhookConfig {
+  message: string;
+  // Returned once when the service generates the initial signing secret.
+  secret?: string;
+  secretWarning?: string;
 }
 
 export interface WebhookLogEntry {
-  logId: string;
+  id: string;
   eventType: string;
-  url: string;
-  status: 'delivered' | 'failed' | 'pending';
-  statusCode?: number;
-  attempt: number;
-  deliveredAt?: string;
-  errorMessage?: string;
+  status: 'delivered' | 'failed' | 'pending' | 'dead_letter';
+  responseCode: number | null;
+  durationMs: number | null;
+  retryCount: number;
+  deliveredAt: string | null;
+  errorMessage: string | null;
   createdAt: string;
 }
 

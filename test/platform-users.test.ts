@@ -4,8 +4,9 @@
 //    user-scoped wallet path with X-PM-Acting-User attached
 // 3. client.platform.users(uid).orders.create attaches X-PM-Acting-User on
 //    the standard orders endpoint
-// 4. SDK-managed headers cannot be clobbered by a caller-supplied extras map
-// 5. Revshare endpoints are reachable via client.platform.revshare
+// 4. switchMerchant is available only through the acting-user scoped client
+// 5. SDK-managed headers cannot be clobbered by a caller-supplied extras map
+// 6. Revshare endpoints are reachable via client.platform.revshare
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import axios from 'axios';
@@ -24,11 +25,6 @@ interface CapturedRequest {
 
 function buildClient() {
   const captured: CapturedRequest[] = [];
-  const fakeResponse = {
-    status: 200,
-    headers: {},
-    data: '{"ok":true}'
-  };
 
   // Patch axios.create so MerchantClient's HttpTransport spins up a fake.
   const fakeInstance = {
@@ -39,7 +35,27 @@ function buildClient() {
         data: cfg.data,
         headers: cfg.headers
       });
-      return fakeResponse;
+      const body = cfg.url === '/api/v1/merchant/orders'
+        ? {
+            order: {
+              orderId: 'order_test',
+              type: 'sell',
+              cryptocurrency: 'USDT',
+              fiatCurrency: 'KRW',
+              amount: 100,
+              remainingAmount: 100,
+              price: 1320.5,
+              status: 'active',
+              paymentMethods: ['Bank Transfer'],
+              timeLimit: 60,
+              createdAt: '2026-08-29T00:00:00.000Z',
+              updatedAt: '2026-08-29T00:00:00.000Z'
+            }
+          }
+        : cfg.url?.includes('/wallet/balance')
+          ? { balances: [] }
+          : { ok: true };
+      return { status: 200, headers: {}, data: JSON.stringify(body) };
     }),
     get: vi.fn(async () => ({
       data: { serverTime: Date.now(), iso: new Date().toISOString() }
@@ -113,7 +129,8 @@ describe('client.platform.users(userId).orders.create', () => {
       fiatCurrency: 'KRW',
       amount: '100.00000000',
       price: '1320.50',
-      paymentMethodIds: ['pm_test']
+      paymentMethods: ['Bank Transfer'],
+      timeLimit: 60
     });
     const req = captured[0];
     expect(req.method).toBe('POST');
@@ -123,6 +140,20 @@ describe('client.platform.users(userId).orders.create', () => {
     const parsed = JSON.parse(req.data as string);
     expect(parsed.cryptocurrency).toBe('USDT');
     expect(parsed.amount).toBe('100.00000000');
+  });
+});
+
+describe('client.platform.users(userId).trades.switchMerchant', () => {
+  it('POSTs the quick-trade route with X-PM-Acting-User', async () => {
+    const { client, captured } = buildClient();
+    await client.platform.users('buyer_123').trades.switchMerchant('trade_123', {
+      reason: 'better payment window'
+    });
+    const req = captured[0];
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('/api/v1/merchant/quick/trade_123/switch-merchant');
+    expect(req.headers?.['X-PM-Acting-User']).toBe('buyer_123');
+    expect(JSON.parse(req.data as string)).toEqual({ reason: 'better payment window' });
   });
 });
 

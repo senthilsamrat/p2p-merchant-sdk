@@ -7,6 +7,11 @@ import type {
   WalletBalance,
   WalletHold
 } from '../types/common.js';
+import {
+  expectObject,
+  normalizeWalletBalance,
+  normalizeWalletHold
+} from '../utils/response.js';
 
 const BASE = '/api/v1/merchant/wallet';
 
@@ -31,7 +36,7 @@ export class WalletResource {
     opts: { currency?: string } = {},
     requestOpts: RequestOptions = {}
   ): Promise<WalletBalance[]> {
-    const envelope = await this.http.request<{ balances: WalletBalance[] }>(
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
         path: `${BASE}/balance`,
@@ -39,7 +44,13 @@ export class WalletResource {
       },
       requestOpts
     );
-    return Array.isArray(envelope?.balances) ? envelope.balances : [];
+    const envelope = expectObject(response, 'wallet balance response');
+    if (!Array.isArray(envelope.balances)) {
+      throw new Error('Invalid wallet balance response: expected balances array');
+    }
+    return envelope.balances.map((balance, index) =>
+      normalizeWalletBalance(balance, `wallet balance response.balances[${index}]`)
+    );
   }
 
   /**
@@ -56,7 +67,7 @@ export class WalletResource {
     opts: { currency?: string; limit?: number } = {},
     requestOpts: RequestOptions = {}
   ): Promise<WalletHold[]> {
-    const envelope = await this.http.request<{ holds: WalletHold[] }>(
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
         path: `${BASE}/holds`,
@@ -64,6 +75,12 @@ export class WalletResource {
       },
       requestOpts
     );
-    return Array.isArray(envelope?.holds) ? envelope.holds : [];
+    const envelope = expectObject(response, 'wallet holds response');
+    if (!Array.isArray(envelope.holds)) {
+      throw new Error('Invalid wallet holds response: expected holds array');
+    }
+    return envelope.holds.map((hold, index) =>
+      normalizeWalletHold(hold, `wallet holds response.holds[${index}]`)
+    );
   }
 }

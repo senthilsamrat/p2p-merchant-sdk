@@ -42,12 +42,17 @@ export interface CreateOrderInput {
   fiatCurrency: string;
   amount: string;
   price: string;
-  paymentMethodIds: string[];
+  // Display names as the server publishes them per fiat currency, for example
+  // 'Bank Transfer' or 'PayNow', not identifiers. The set is validated against
+  // fiatCurrency, and a value outside it is refused with the allowed list.
+  paymentMethods: string[];
+  // Minutes the buyer has to pay. Required: the server rejects an order
+  // without it rather than applying a default.
+  timeLimit: number;
   // Optional caps and constraints. The server applies tier-based defaults
   // when omitted.
   minAmount?: string;
   maxAmount?: string;
-  paymentTimeLimit?: number;
   terms?: string;
   autoReply?: string;
 }
@@ -58,7 +63,9 @@ export interface UpdateOrderInput {
   minAmount?: string;
   maxAmount?: string;
   status?: OrderStatus;
-  paymentMethodIds?: string[];
+  // Same display-name form as CreateOrderInput.
+  paymentMethods?: string[];
+  timeLimit?: number;
   terms?: string;
   autoReply?: string;
 }

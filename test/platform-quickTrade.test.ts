@@ -62,7 +62,7 @@ function buildClient(responseBody: string = '{"success":true,"data":{}}') {
 }
 
 describe('client.platform.users(userId).quickTrade.bestMatch', () => {
-  it('GETs /api/v1/merchant/users/:userId/quick/best-match with X-PM-Acting-User and query params', async () => {
+  it('GETs /api/v1/merchant/quick/users/:userId/best-match with X-PM-Acting-User and query params', async () => {
     const body = JSON.stringify({
       success: true,
       data: {
@@ -82,7 +82,7 @@ describe('client.platform.users(userId).quickTrade.bestMatch', () => {
     expect(captured).toHaveLength(1);
     const req = captured[0];
     expect(req.method).toBe('GET');
-    expect(req.url).toBe('/api/v1/merchant/users/user_buyer/quick/best-match?cryptocurrency=USDT&fiatCurrency=KRW&type=buy&amount=10');
+    expect(req.url).toBe('/api/v1/merchant/quick/users/user_buyer/best-match?cryptocurrency=USDT&fiatCurrency=KRW&type=buy&amount=10');
     expect(req.headers?.['X-PM-Acting-User']).toBe('user_buyer');
     expect(req.headers?.['X-Signature']).toMatch(/^[0-9a-f]{64}$/);
     expect(match.merchant.id).toBe('m1');
@@ -115,7 +115,7 @@ describe('client.platform.users(userId).quickTrade.bestMatch', () => {
 });
 
 describe('client.platform.users(userId).quickTrade.initiate', () => {
-  it('POSTs /api/v1/merchant/users/:userId/quick/initiate with X-PM-Acting-User and an auto-generated Idempotency-Key', async () => {
+  it('POSTs /api/v1/merchant/quick/users/:userId/initiate with X-PM-Acting-User and an auto-generated Idempotency-Key', async () => {
     const body = JSON.stringify({
       success: true,
       data: {
@@ -142,7 +142,7 @@ describe('client.platform.users(userId).quickTrade.initiate', () => {
     });
     const req = captured[0];
     expect(req.method).toBe('POST');
-    expect(req.url).toBe('/api/v1/merchant/users/user_buyer/quick/initiate');
+    expect(req.url).toBe('/api/v1/merchant/quick/users/user_buyer/initiate');
     expect(req.headers?.['X-PM-Acting-User']).toBe('user_buyer');
     expect(req.headers?.['Idempotency-Key']).toMatch(/^[0-9a-f]{32}$/);
     const parsed = JSON.parse(req.data as string);

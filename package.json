@@ -1,6 +1,6 @@
 {
   "name": "@plantmewallet/merchant-sdk",
-  "version": "0.2.1-beta.0",
+  "version": "0.3.0-beta.0",
   "description": "Official TypeScript SDK for the PlantMe Wallet merchant API. HMAC-signed REST and WebSocket access to orders, trades, wallets, market data, and SaaS multi-tenant end-user operations.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

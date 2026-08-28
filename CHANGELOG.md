@@ -7,6 +7,64 @@ and the package adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 The beta line (`0.x`) may still break public surface between minor versions;
 pin `~0.2.1-beta` if you want to opt out of incidental changes.
 
+## [0.3.0-beta.0] - 2026-08-29
+
+### Added
+
+- `client.platform.users(uid).trades.create()` takes an order another user
+  posted on the marketplace. The caller's own orders are refused, as are
+  orders belonging to another platform's users. An idempotency key is
+  required, and replaying one returns the trade the first call created.
+- `client.platform.users(uid).trades.getMessages()` reads the chat thread on
+  a trade as one of its parties.
+- `client.platform.users(uid).market.getMyRank()` reads an end user's rank on
+  an order they posted. Market rank for a `platform_users` key belongs to an
+  end user, so it is reached under the user rather than the client.
+- `hostedPageUrl` on the KYC start response, so a tenant can hand a user a
+  link instead of embedding the widget. `sdkToken` is unchanged.
+- `DEPOSIT_CURRENCIES` and `DEPOSIT_NETWORKS` are exported as values, so a
+  caller can enumerate what a deposit address can be issued for at runtime
+  without restating the list.
+- Transfer and ledger records carry `direction`, `timestamp`, and the
+  originating `tradeId`, `escrowId`, `withdrawalId` or `depositId` where the
+  service supplies them.
+- The transport replays a `409` carrying `TRANSFER_IN_PROGRESS` or
+  `WITHDRAWAL_IN_PROGRESS` on the same `Idempotency-Key`, which reads the
+  outcome of the call already in flight rather than starting a second one.
+  A conflict is never replayed without a key. Every other `409`, including
+  `IDEMPOTENCY_KEY_CONFLICT`, is decided state and is raised immediately.
+  `Retry-After` is honoured when present, and the attempt budget is shared
+  with the other retry reasons.
+
+### Changed
+
+- **Breaking.** `CreateOrderInput.paymentMethodIds` becomes `paymentMethods`
+  and takes the display names the service publishes per fiat currency, for
+  example `Bank Transfer` or `PayNow`. The set is validated against
+  `fiatCurrency` and a value outside it is refused with the allowed list.
+  `UpdateOrderInput` takes the same form.
+- **Breaking.** `CreateOrderInput.timeLimit` replaces `paymentTimeLimit` and
+  is required. The service rejects an order without it rather than applying
+  a default.
+- **Breaking.** The deposit address input requires `network` and accepts only
+  `ERC20`, `TRC20` or `BEP20`, with `USDT` as the only currency. An address
+  is valid solely on the chain it was issued for, so the chain is part of the
+  request rather than a default.
+
+### Fixed
+
+- Trade chat is served by a different service from the rest of the trade
+  surface and is now reached under its own path.
+- Webhook signature verification parses the ISO instant the delivery puts on
+  `X-Webhook-Timestamp`. Epoch milliseconds are still accepted.
+- Rotating the webhook signing secret sends the acknowledgement the service
+  requires, so the call no longer depends on a flag a caller could omit.
+- The subscribed event list is unwrapped when it arrives wrapped the way the
+  sibling webhook routes wrap theirs. A bare array passes through unchanged.
+- `platform.wallet.fundUser` names the acting user, so the service runs its
+  cross-tenant and account state gates against the recipient. Caller supplied
+  headers are preserved.
+
 ## [0.2.1-beta.0] - 2026-05-22
 
 ### Security

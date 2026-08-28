@@ -506,13 +506,14 @@ export class ScopedTradesResource {
    * @returns The trade record.
    */
   async get(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
-    return this.http.request<Trade>(
+    const envelope = await this.http.request<unknown>(
       {
         method: 'GET',
         path: `/api/v1/merchant/trades/${encodeURIComponent(tradeId)}`
       },
       withActingUser(opts, this.userId)
     );
+    return unwrapEnvelope<Trade>(envelope, 'trade');
   }
 
   /**
@@ -523,13 +524,14 @@ export class ScopedTradesResource {
    * @returns The updated trade record.
    */
   async markPaymentSent(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
-    return this.http.request<Trade>(
+    const envelope = await this.http.request<unknown>(
       {
         method: 'POST',
         path: `/api/v1/merchant/trades/${encodeURIComponent(tradeId)}/payment-sent`
       },
       withActingUser(opts, this.userId)
     );
+    return unwrapEnvelope<Trade>(envelope, 'trade');
   }
 
   /**
@@ -540,13 +542,14 @@ export class ScopedTradesResource {
    * @returns The updated trade record.
    */
   async confirmPayment(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
-    return this.http.request<Trade>(
+    const envelope = await this.http.request<unknown>(
       {
         method: 'POST',
         path: `/api/v1/merchant/trades/${encodeURIComponent(tradeId)}/confirm-payment`
       },
       withActingUser(opts, this.userId)
     );
+    return unwrapEnvelope<Trade>(envelope, 'trade');
   }
 
   /**
@@ -557,13 +560,14 @@ export class ScopedTradesResource {
    * @returns The cancelled trade record.
    */
   async cancel(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
-    return this.http.request<Trade>(
+    const envelope = await this.http.request<unknown>(
       {
         method: 'POST',
         path: `/api/v1/merchant/trades/${encodeURIComponent(tradeId)}/cancel`
       },
       withActingUser(opts, this.userId)
     );
+    return unwrapEnvelope<Trade>(envelope, 'trade');
   }
 
   /**

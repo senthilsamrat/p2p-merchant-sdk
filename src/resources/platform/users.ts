@@ -4,7 +4,11 @@
 
 import type { HttpTransport } from '../../transport/httpTransport.js';
 import type {
+  CancelOrderResult,
   CreateOrderInput,
+  DisputeResponse,
+  ListMessagesOptions,
+  ListMessagesResponse,
   ListOrdersOptions,
   ListTradesOptions,
   Message,
@@ -13,6 +17,7 @@ import type {
   RankInfo,
   RequestOptions,
   Trade,
+  TradeActionResult,
   UpdateOrderInput
 } from '../../types/common.js';
 import type {
@@ -44,7 +49,21 @@ import type {
   WithdrawResult
 } from './types.js';
 import { ScopedQuickTradeResource } from './quickTrade.js';
-import { unwrapEnvelope } from '../../utils/envelope.js';
+import {
+  expectObject,
+  normalizeCancelOrder,
+  normalizeDisputeResponse,
+  normalizeMessage,
+  normalizeOrder,
+  normalizePaymentMethod,
+  normalizeTrade,
+  normalizeTradeAction,
+  normalizeWalletBalance,
+  normalizeWalletHold,
+  optionalString,
+  unwrapObject
+} from '../../utils/response.js';
+import { buildOrderUpdateRequest } from '../../utils/orderUpdateRequest.js';
 
 const BASE = '/api/v1/merchant/users';
 
@@ -319,12 +338,14 @@ export class ScopedOrdersResource {
    * @returns The created order record.
    */
   async create(input: CreateOrderInput, opts: RequestOptions = {}): Promise<Order> {
-    // Server returns {success, order: {...}} envelope; extract the order.
-    const envelope = await this.http.request<unknown>(
+    const response = await this.http.request<unknown>(
       { method: 'POST', path: '/api/v1/merchant/orders', body: input },
       withActingUser(opts, this.userId)
     );
-    return unwrapEnvelope<Order>(envelope, 'order');
+    return normalizeOrder(
+      unwrapObject(response, 'create scoped order response', ['order', 'data']),
+      'create scoped order response.order'
+    );
   }
 
   /**
@@ -338,7 +359,7 @@ export class ScopedOrdersResource {
     opts: ListOrdersOptions = {},
     requestOpts: RequestOptions = {}
   ): Promise<Paginated<Order>> {
-    const items = await this.http.request<Order[] | Paginated<Order>>(
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
         path: '/api/v1/merchant/orders',
@@ -350,7 +371,7 @@ export class ScopedOrdersResource {
       },
       withActingUser(requestOpts, this.userId)
     );
-    return normalizePage<Order>(items, opts.limit);
+    return normalizeOrderPage(response, opts.limit);
   }
 
   /**
@@ -362,15 +383,17 @@ export class ScopedOrdersResource {
    * @throws NotFoundError when the id is unknown or the order belongs to another user.
    */
   async get(orderId: string, opts: RequestOptions = {}): Promise<Order> {
-    // Server returns {success, order: {...}} envelope; extract the order.
-    const envelope = await this.http.request<unknown>(
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
         path: `/api/v1/merchant/orders/${encodeURIComponent(orderId)}`
       },
       withActingUser(opts, this.userId)
     );
-    return unwrapEnvelope<Order>(envelope, 'order');
+    return normalizeOrder(
+      unwrapObject(response, 'get scoped order response', ['order']),
+      'get scoped order response.order'
+    );
   }
 
   /**
@@ -386,16 +409,18 @@ export class ScopedOrdersResource {
     patch: UpdateOrderInput,
     opts: RequestOptions = {}
   ): Promise<Order> {
-    // Server returns {success, order: {...}} envelope; extract the order.
-    const envelope = await this.http.request<unknown>(
-      {
-        method: 'PATCH',
-        path: `/api/v1/merchant/orders/${encodeURIComponent(orderId)}`,
-        body: patch
-      },
+    const request = buildOrderUpdateRequest(
+      `/api/v1/merchant/orders/${encodeURIComponent(orderId)}`,
+      patch
+    );
+    const response = await this.http.request<unknown>(
+      request,
       withActingUser(opts, this.userId)
     );
-    return unwrapEnvelope<Order>(envelope, 'order');
+    return normalizeOrder(
+      unwrapObject(response, 'update scoped order response', ['order']),
+      'update scoped order response.order'
+    );
   }
 
   /**
@@ -403,16 +428,17 @@ export class ScopedOrdersResource {
    *
    * @param orderId - Order identifier.
    * @param opts - Per-request transport overrides.
-   * @returns The cancelled order record.
+   * @returns The cancelled order id and service confirmation message.
    */
-  async cancel(orderId: string, opts: RequestOptions = {}): Promise<Order> {
-    return this.http.request<Order>(
+  async cancel(orderId: string, opts: RequestOptions = {}): Promise<CancelOrderResult> {
+    const response = await this.http.request<unknown>(
       {
         method: 'DELETE',
         path: `/api/v1/merchant/orders/${encodeURIComponent(orderId)}`
       },
       withActingUser(opts, this.userId)
     );
+    return normalizeCancelOrder(response);
   }
 }
 
@@ -437,9 +463,9 @@ export class ScopedTradesResource {
    *
    * @param input - Order to accept, amount, payment method and an idempotency key.
    * @param opts - Per-request transport overrides.
-   * @returns The trade that was opened.
+   * @returns The created trade action result.
    */
-  async create(input: AcceptOrderInput, opts: RequestOptions = {}): Promise<Trade> {
+  async create(input: AcceptOrderInput, opts: RequestOptions = {}): Promise<TradeActionResult> {
     if (!input?.orderId) {
       throw new Error('trades.create: orderId is required');
     }
@@ -464,11 +490,14 @@ export class ScopedTradesResource {
     }
 
     const { idempotencyKey: _drop, ...body } = input;
-    const envelope = await this.http.request<unknown>(
+    const response = await this.http.request<unknown>(
       { method: 'POST', path: '/api/v1/merchant/trades', body },
       merged
     );
-    return unwrapEnvelope<Trade>(envelope, 'trade');
+    return normalizeTradeAction(
+      unwrapObject(response, 'create scoped trade response', ['trade']),
+      'create scoped trade response.trade'
+    );
   }
 
   /**
@@ -482,7 +511,7 @@ export class ScopedTradesResource {
     opts: ListTradesOptions = {},
     requestOpts: RequestOptions = {}
   ): Promise<Paginated<Trade>> {
-    const items = await this.http.request<Trade[] | Paginated<Trade>>(
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
         path: '/api/v1/merchant/trades',
@@ -495,7 +524,7 @@ export class ScopedTradesResource {
       },
       withActingUser(requestOpts, this.userId)
     );
-    return normalizePage<Trade>(items, opts.limit);
+    return normalizeTradePage(response, opts.limit);
   }
 
   /**
@@ -504,16 +533,19 @@ export class ScopedTradesResource {
    * @param tradeId - Trade identifier.
    * @param opts - Per-request transport overrides.
    * @returns The trade record.
-   */
+  */
   async get(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
-    const envelope = await this.http.request<unknown>(
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
         path: `/api/v1/merchant/trades/${encodeURIComponent(tradeId)}`
       },
       withActingUser(opts, this.userId)
     );
-    return unwrapEnvelope<Trade>(envelope, 'trade');
+    return normalizeTrade(
+      unwrapObject(response, 'get scoped trade response', ['trade']),
+      'get scoped trade response.trade'
+    );
   }
 
   /**
@@ -521,17 +553,23 @@ export class ScopedTradesResource {
    *
    * @param tradeId - Trade identifier.
    * @param opts - Per-request transport overrides.
-   * @returns The updated trade record.
+   * @returns The payment-sent action result.
    */
-  async markPaymentSent(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
-    const envelope = await this.http.request<unknown>(
+  async markPaymentSent(
+    tradeId: string,
+    opts: RequestOptions = {}
+  ): Promise<TradeActionResult> {
+    const response = await this.http.request<unknown>(
       {
         method: 'POST',
         path: `/api/v1/merchant/trades/${encodeURIComponent(tradeId)}/payment-sent`
       },
       withActingUser(opts, this.userId)
     );
-    return unwrapEnvelope<Trade>(envelope, 'trade');
+    return normalizeTradeAction(
+      unwrapObject(response, 'mark scoped trade payment response', ['trade']),
+      'mark scoped trade payment response.trade'
+    );
   }
 
   /**
@@ -539,17 +577,23 @@ export class ScopedTradesResource {
    *
    * @param tradeId - Trade identifier.
    * @param opts - Per-request transport overrides.
-   * @returns The updated trade record.
+   * @returns The confirmation action result.
    */
-  async confirmPayment(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
-    const envelope = await this.http.request<unknown>(
+  async confirmPayment(
+    tradeId: string,
+    opts: RequestOptions = {}
+  ): Promise<TradeActionResult> {
+    const response = await this.http.request<unknown>(
       {
         method: 'POST',
         path: `/api/v1/merchant/trades/${encodeURIComponent(tradeId)}/confirm-payment`
       },
       withActingUser(opts, this.userId)
     );
-    return unwrapEnvelope<Trade>(envelope, 'trade');
+    return normalizeTradeAction(
+      unwrapObject(response, 'confirm scoped trade payment response', ['trade']),
+      'confirm scoped trade payment response.trade'
+    );
   }
 
   /**
@@ -557,17 +601,20 @@ export class ScopedTradesResource {
    *
    * @param tradeId - Trade identifier.
    * @param opts - Per-request transport overrides.
-   * @returns The cancelled trade record.
+   * @returns The cancellation action result.
    */
-  async cancel(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
-    const envelope = await this.http.request<unknown>(
+  async cancel(tradeId: string, opts: RequestOptions = {}): Promise<TradeActionResult> {
+    const response = await this.http.request<unknown>(
       {
         method: 'POST',
         path: `/api/v1/merchant/trades/${encodeURIComponent(tradeId)}/cancel`
       },
       withActingUser(opts, this.userId)
     );
-    return unwrapEnvelope<Trade>(envelope, 'trade');
+    return normalizeTradeAction(
+      unwrapObject(response, 'cancel scoped trade response', ['trade']),
+      'cancel scoped trade response.trade'
+    );
   }
 
   /**
@@ -582,8 +629,8 @@ export class ScopedTradesResource {
     tradeId: string,
     input: { reason: string; evidence?: string[] },
     opts: RequestOptions = {}
-  ): Promise<unknown> {
-    return this.http.request<unknown>(
+  ): Promise<DisputeResponse> {
+    const response = await this.http.request<unknown>(
       {
         method: 'POST',
         path: `/api/v1/merchant/trades/${encodeURIComponent(tradeId)}/dispute`,
@@ -591,12 +638,14 @@ export class ScopedTradesResource {
       },
       withActingUser(opts, this.userId)
     );
+    return normalizeDisputeResponse(response);
   }
 
   /**
    * Switches the merchant counterparty on an in-flight Express trade.
    *
-   * Pre-payment only; mirrors the top-level TradesResource method.
+   * Pre-payment only. This operation is user-scoped because the service must
+   * authenticate which platform end-user owns the in-flight trade.
    *
    * @param tradeId - The original trade identifier.
    * @param input - Optional `reason` annotation.
@@ -607,8 +656,18 @@ export class ScopedTradesResource {
     tradeId: string,
     input: { reason?: string } = {},
     opts: RequestOptions = {}
-  ): Promise<unknown> {
-    return this.http.request<unknown>(
+  ): Promise<{
+    success: boolean;
+    code: string;
+    previousTradeId: string;
+    newTradeId: string;
+  }> {
+    return this.http.request<{
+      success: boolean;
+      code: string;
+      previousTradeId: string;
+      newTradeId: string;
+    }>(
       {
         method: 'POST',
         path: `/api/v1/merchant/quick/${encodeURIComponent(tradeId)}/switch-merchant`,
@@ -631,13 +690,18 @@ export class ScopedTradesResource {
     input: { content: string; type?: 'text' | 'image_url' },
     opts: RequestOptions = {}
   ): Promise<Message> {
-    return this.http.request<Message>(
+    const response = await this.http.request<unknown>(
       {
         method: 'POST',
         path: `/api/v1/merchant/chat/trades/${encodeURIComponent(tradeId)}/messages`,
         body: input
       },
       withActingUser(opts, this.userId)
+    );
+    return normalizeMessage(
+      unwrapObject(response, 'send scoped message response', ['message']),
+      tradeId,
+      'send scoped message response.message'
     );
   }
 
@@ -649,18 +713,24 @@ export class ScopedTradesResource {
    * user who is not on the trade is refused.
    *
    * @param tradeId - Trade identifier.
-   * @param opts - Per-request transport overrides.
-   * @returns The messages on the thread.
+   * @param options - Page size and opaque `before` cursor.
+   * @param requestOpts - Per-request transport overrides.
+   * @returns The messages and the cursor for the next older page.
    */
-  async getMessages(tradeId: string, opts: RequestOptions = {}): Promise<Message[]> {
-    const envelope = await this.http.request<unknown>(
+  async getMessages(
+    tradeId: string,
+    options: ListMessagesOptions = {},
+    requestOpts: RequestOptions = {}
+  ): Promise<ListMessagesResponse> {
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
-        path: `/api/v1/merchant/chat/trades/${encodeURIComponent(tradeId)}/messages`
+        path: `/api/v1/merchant/chat/trades/${encodeURIComponent(tradeId)}/messages`,
+        query: { limit: options.limit, before: options.before }
       },
-      withActingUser(opts, this.userId)
+      withActingUser(requestOpts, this.userId)
     );
-    return unwrapEnvelope<Message[]>(envelope, 'messages');
+    return normalizeMessagePage(response, tradeId);
   }
 }
 
@@ -693,9 +763,7 @@ export class ScopedWalletResource {
     requestOpts: RequestOptions = {}
   ): Promise<ScopedWalletBalance[]> {
     // Server returns {balances: [...]} envelope; extract the array.
-    const envelope = await this.http.request<
-      ScopedWalletBalance[] | { balances: ScopedWalletBalance[] }
-    >(
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
         path: `${this.root()}/balance`,
@@ -703,8 +771,15 @@ export class ScopedWalletResource {
       },
       withActingUser(requestOpts, this.userId)
     );
-    if (Array.isArray(envelope)) return envelope;
-    return Array.isArray(envelope?.balances) ? envelope.balances : [];
+    const balances = Array.isArray(response)
+      ? response
+      : expectObject(response, 'scoped wallet balance response').balances;
+    if (!Array.isArray(balances)) {
+      throw new Error('Invalid scoped wallet balance response: expected balances array');
+    }
+    return balances.map((balance, index) =>
+      normalizeWalletBalance(balance, `scoped wallet balance response.balances[${index}]`)
+    );
   }
 
   /**
@@ -719,9 +794,7 @@ export class ScopedWalletResource {
     requestOpts: RequestOptions = {}
   ): Promise<ScopedWalletHold[]> {
     // Server returns {holds: [...]} envelope; extract the array.
-    const envelope = await this.http.request<
-      ScopedWalletHold[] | { holds: ScopedWalletHold[] }
-    >(
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
         path: `${this.root()}/holds`,
@@ -729,8 +802,15 @@ export class ScopedWalletResource {
       },
       withActingUser(requestOpts, this.userId)
     );
-    if (Array.isArray(envelope)) return envelope;
-    return Array.isArray(envelope?.holds) ? envelope.holds : [];
+    const holds = Array.isArray(response)
+      ? response
+      : expectObject(response, 'scoped wallet holds response').holds;
+    if (!Array.isArray(holds)) {
+      throw new Error('Invalid scoped wallet holds response: expected holds array');
+    }
+    return holds.map((hold, index) =>
+      normalizeWalletHold(hold, `scoped wallet holds response.holds[${index}]`)
+    );
   }
 
   /**
@@ -867,14 +947,19 @@ export class ScopedPaymentMethodsResource {
    */
   async list(opts: RequestOptions = {}): Promise<ScopedPaymentMethod[]> {
     // Server returns {methods: [...]} envelope; extract the array.
-    const envelope = await this.http.request<
-      ScopedPaymentMethod[] | { methods: ScopedPaymentMethod[] }
-    >(
+    const response = await this.http.request<unknown>(
       { method: 'GET', path: '/api/v1/merchant/payment-methods' },
       withActingUser(opts, this.userId)
     );
-    if (Array.isArray(envelope)) return envelope;
-    return Array.isArray(envelope?.methods) ? envelope.methods : [];
+    const methods = Array.isArray(response)
+      ? response
+      : expectObject(response, 'scoped payment methods response').methods;
+    if (!Array.isArray(methods)) {
+      throw new Error('Invalid scoped payment methods response: expected methods array');
+    }
+    return methods.map((method, index) =>
+      normalizePaymentMethod(method, `scoped payment methods response.methods[${index}]`)
+    );
   }
 
   /**
@@ -1072,11 +1157,62 @@ export class ScopedMarketResource {
   }
 }
 
-function normalizePage<T>(raw: T[] | Paginated<T>, requestedLimit: number | undefined): Paginated<T> {
+function normalizeOrderPage(raw: unknown, requestedLimit: number | undefined): Paginated<Order> {
   if (Array.isArray(raw)) {
-    const items = raw;
+    const items = raw.map((item, index) => normalizeOrder(item, `list scoped orders response[${index}]`));
     const hasMore = requestedLimit !== undefined ? items.length >= requestedLimit : false;
     return { items, hasMore };
   }
-  return raw;
+  const page = expectObject(raw, 'list scoped orders response');
+  if (!Array.isArray(page.items) || typeof page.hasMore !== 'boolean') {
+    throw new Error('Invalid list scoped orders response: expected items array and hasMore boolean');
+  }
+  const nextCursor = optionalString(page.nextCursor, 'list scoped orders response.nextCursor');
+  return {
+    items: page.items.map((item, index) =>
+      normalizeOrder(item, `list scoped orders response.items[${index}]`)
+    ),
+    hasMore: page.hasMore,
+    ...(nextCursor !== undefined ? { nextCursor } : {})
+  };
+}
+
+function normalizeTradePage(raw: unknown, requestedLimit: number | undefined): Paginated<Trade> {
+  if (Array.isArray(raw)) {
+    const items = raw.map((item, index) => normalizeTrade(item, `list scoped trades response[${index}]`));
+    const hasMore = requestedLimit !== undefined ? items.length >= requestedLimit : false;
+    return { items, hasMore };
+  }
+  const page = expectObject(raw, 'list scoped trades response');
+  if (!Array.isArray(page.items) || typeof page.hasMore !== 'boolean') {
+    throw new Error('Invalid list scoped trades response: expected items array and hasMore boolean');
+  }
+  const nextCursor = optionalString(page.nextCursor, 'list scoped trades response.nextCursor');
+  return {
+    items: page.items.map((item, index) =>
+      normalizeTrade(item, `list scoped trades response.items[${index}]`)
+    ),
+    hasMore: page.hasMore,
+    ...(nextCursor !== undefined ? { nextCursor } : {})
+  };
+}
+
+function normalizeMessagePage(raw: unknown, tradeId: string): ListMessagesResponse {
+  const page = expectObject(raw, 'list scoped messages response');
+  if (!Array.isArray(page.messages) || typeof page.hasMore !== 'boolean') {
+    throw new Error('Invalid list scoped messages response: expected messages array and hasMore boolean');
+  }
+  const nextCursor = optionalString(page.nextCursor, 'list scoped messages response.nextCursor');
+  const oldestMessageId = optionalString(
+    page.oldestMessageId,
+    'list scoped messages response.oldestMessageId'
+  );
+  return {
+    messages: page.messages.map((message, index) =>
+      normalizeMessage(message, tradeId, `list scoped messages response.messages[${index}]`)
+    ),
+    hasMore: page.hasMore,
+    ...(nextCursor !== undefined ? { nextCursor } : {}),
+    ...(oldestMessageId !== undefined ? { oldestMessageId } : {})
+  };
 }

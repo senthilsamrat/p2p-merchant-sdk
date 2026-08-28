@@ -15,6 +15,7 @@ import {
 import { ResumeBuffer } from '../src/stream/resumeBuffer.js';
 import { buildHandshakeHeaders } from '../src/stream/handshake.js';
 import type { MerchantEvent } from '../src/stream/types.js';
+import { AuthenticationError, PermissionDeniedError } from '../src/errors/index.js';
 
 // Test fixtures. Use deterministic credentials so signature checks are
 // reproducible across runs.
@@ -29,6 +30,7 @@ interface TestServer {
   // Accept callback receives the ws socket plus the upgrade request so the
   // test can validate handshake headers and decide what frames to send.
   setOnConnection: (cb: (ws: WsServerSocket, req: http.IncomingMessage) => void) => void;
+  setUpgradeStatus: (cb: (req: http.IncomingMessage) => number | null) => void;
   close: () => Promise<void>;
 }
 
@@ -36,9 +38,20 @@ async function startTestServer(): Promise<TestServer> {
   const httpServer = http.createServer();
   const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
   let onConnection: ((ws: WsServerSocket, req: http.IncomingMessage) => void) | null = null;
+  let upgradeStatus: ((req: http.IncomingMessage) => number | null) | null = null;
 
   httpServer.on('upgrade', (req, socket, head) => {
     if ((req.url || '').split('?')[0] !== '/ws/merchant-stream') {
+      socket.destroy();
+      return;
+    }
+    const rejectedStatus = upgradeStatus?.(req) ?? null;
+    if (rejectedStatus !== null) {
+      socket.write(
+        `HTTP/1.1 ${rejectedStatus} Upgrade Rejected\r\n` +
+        'Connection: close\r\n' +
+        'Content-Length: 0\r\n\r\n',
+      );
       socket.destroy();
       return;
     }
@@ -60,6 +73,9 @@ async function startTestServer(): Promise<TestServer> {
     url,
     setOnConnection(cb) {
       onConnection = cb;
+    },
+    setUpgradeStatus(cb) {
+      upgradeStatus = cb;
     },
     close() {
       return new Promise<void>((resolve) => {
@@ -216,6 +232,15 @@ describe('ResumeBuffer', () => {
     expect(buf.size()).toBe(0);
     expect(buf.getLastSequence()).toBe(-1);
   });
+
+  it('resetSequence preserves event-id dedup state', () => {
+    const buf = new ResumeBuffer(5);
+    buf.add('x');
+    buf.recordSequence(10);
+    buf.resetSequence();
+    expect(buf.has('x')).toBe(true);
+    expect(buf.getLastSequence()).toBe(-1);
+  });
 });
 
 describe('MerchantStream', () => {
@@ -304,6 +329,34 @@ describe('MerchantStream', () => {
     await stream.close();
   });
 
+  it.each([-1, 0, 1.5])('rejects invalid event sequence %s without advancing resume state', async (sequence) => {
+    server.setOnConnection((ws) => {
+      sendSessionStart(ws);
+      ws.send(JSON.stringify(makeEvent(sequence, 'merchant.orders.created', {
+        eventId: `invalid-sequence-${sequence}`,
+      })));
+    });
+
+    const stream = new MerchantStream({
+      apiKey: TEST_API_KEY,
+      hmacSecret: TEST_HMAC_SECRET,
+      baseUrl: server.url,
+      options: { reconnect: false },
+    });
+    const errors: Error[] = [];
+    const events: MerchantEvent[] = [];
+    stream.on('error', (error) => errors.push(error));
+    stream.on('event', (event) => events.push(event));
+
+    await stream.connect();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(events).toHaveLength(0);
+    expect(errors.some((error) => (error as any).code === 'PROTOCOL_VIOLATION')).toBe(true);
+    expect((stream as any).resumeBuffer.getLastSequence()).toBe(-1);
+    await stream.close();
+  });
+
   it('detects sequence gaps via SequenceGapError on the error channel', async () => {
     server.setOnConnection((ws) => {
       sendSessionStart(ws);
@@ -384,6 +437,62 @@ describe('MerchantStream', () => {
     await stream.close();
   });
 
+  it('aborts a rejected HTTP 401 upgrade and can connect again afterward', async () => {
+    server.setUpgradeStatus(() => 401);
+    const stream = new MerchantStream({
+      apiKey: TEST_API_KEY,
+      hmacSecret: TEST_HMAC_SECRET,
+      baseUrl: server.url,
+      options: { reconnect: false },
+    });
+
+    await expect(stream.connect()).rejects.toBeInstanceOf(AuthenticationError);
+
+    server.setUpgradeStatus(() => null);
+    server.setOnConnection((ws) => sendSessionStart(ws, 'after-401'));
+    await stream.connect();
+    expect(stream.getSessionId()).toBe('after-401');
+    await stream.close();
+  });
+
+  it('treats an HTTP 403 upgrade response as a permanent permission failure', async () => {
+    server.setUpgradeStatus(() => 403);
+    const stream = new MerchantStream({
+      apiKey: TEST_API_KEY,
+      hmacSecret: TEST_HMAC_SECRET,
+      baseUrl: server.url,
+      options: { reconnect: true, reconnectBaseDelayMs: 5 },
+    });
+
+    await expect(stream.connect()).rejects.toBeInstanceOf(PermissionDeniedError);
+    await stream.close();
+  });
+
+  it('reconnects after an HTTP 503 upgrade rejection', async () => {
+    let upgrades = 0;
+    server.setUpgradeStatus(() => {
+      upgrades += 1;
+      return upgrades === 1 ? 503 : null;
+    });
+    server.setOnConnection((ws) => sendSessionStart(ws, 'after-503'));
+    const stream = new MerchantStream({
+      apiKey: TEST_API_KEY,
+      hmacSecret: TEST_HMAC_SECRET,
+      baseUrl: server.url,
+      options: {
+        reconnect: true,
+        reconnectMaxAttempts: 2,
+        reconnectBaseDelayMs: 5,
+        reconnectMaxDelayMs: 5,
+      },
+    });
+
+    await stream.connect();
+    expect(upgrades).toBe(2);
+    expect(stream.getSessionId()).toBe('after-503');
+    await stream.close();
+  });
+
   it('reconnects on ABNORMAL_CLOSE (1006) when reconnect=true', async () => {
     let connections = 0;
     let reconnects = 0;
@@ -417,9 +526,10 @@ describe('MerchantStream', () => {
     await stream.close();
   });
 
-  it('on reconnect, sends Last-Event-Id header carrying the last seen eventId', async () => {
+  it('on reconnect, sends numeric resumeAfter and preserves replay dedup state', async () => {
     let attempt = 0;
-    let resumeHeader: string | undefined;
+    let resumeAfter: string | null = null;
+    const seen: MerchantEvent[] = [];
     server.setOnConnection((ws, req) => {
       attempt += 1;
       if (attempt === 1) {
@@ -427,8 +537,16 @@ describe('MerchantStream', () => {
         ws.send(JSON.stringify(makeEvent(1, 'merchant.orders.created', { eventId: 'evt-A' })));
         setTimeout(() => ws.terminate(), 30);
       } else {
-        resumeHeader = req.headers['last-event-id'] as string | undefined;
+        resumeAfter = new URL(req.url || '', server.url).searchParams.get('resumeAfter');
         sendSessionStart(ws, 'sess-2');
+        ws.send(JSON.stringify(makeEvent(1, 'merchant.orders.created', {
+          eventId: 'evt-A',
+          replay: true,
+        })));
+        ws.send(JSON.stringify(makeEvent(2, 'merchant.orders.created', {
+          eventId: 'evt-B',
+          replay: true,
+        })));
       }
     });
 
@@ -442,12 +560,92 @@ describe('MerchantStream', () => {
         reconnectMaxDelayMs: 50,
       },
     });
+    stream.on('event', (event) => seen.push(event));
 
     await stream.connect();
     await new Promise((r) => setTimeout(r, 400));
     expect(attempt).toBeGreaterThanOrEqual(2);
-    expect(resumeHeader).toBe('evt-A');
+    expect(resumeAfter).toBe('1');
+    expect(seen.map((event) => event.eventId)).toEqual(['evt-A', 'evt-B']);
     await stream.close();
+  });
+
+  it('reconnects from the last contiguous cursor after a live gap', async () => {
+    let attempt = 0;
+    let resumeAfter: string | null = null;
+    const seen: number[] = [];
+    server.setOnConnection((ws, req) => {
+      attempt += 1;
+      sendSessionStart(ws, `gap-session-${attempt}`);
+      if (attempt === 1) {
+        ws.send(JSON.stringify(makeEvent(1, 'merchant.orders.created', { eventId: 'gap-1' })));
+        ws.send(JSON.stringify(makeEvent(2, 'merchant.orders.created', { eventId: 'gap-2' })));
+        ws.send(JSON.stringify(makeEvent(5, 'merchant.orders.created', { eventId: 'gap-5-live' })));
+      } else {
+        resumeAfter = new URL(req.url || '', server.url).searchParams.get('resumeAfter');
+        for (const sequence of [3, 4, 5]) {
+          ws.send(JSON.stringify(makeEvent(sequence, 'merchant.orders.created', {
+            eventId: `gap-${sequence}`,
+            replay: true,
+          })));
+        }
+      }
+    });
+
+    const stream = new MerchantStream({
+      apiKey: TEST_API_KEY,
+      hmacSecret: TEST_HMAC_SECRET,
+      baseUrl: server.url,
+      options: {
+        reconnect: true,
+        reconnectBaseDelayMs: 20,
+        reconnectMaxDelayMs: 50,
+      },
+    });
+    stream.on('event', (event) => seen.push(event.sequence));
+    stream.on('error', () => undefined);
+
+    await stream.connect();
+    await new Promise((r) => setTimeout(r, 400));
+
+    expect(resumeAfter).toBe('2');
+    expect(seen).toEqual([1, 2, 3, 4, 5]);
+    expect(stream.getLastSequence()).toBe(5);
+    await stream.close();
+  });
+
+  it('rejects connect when transient reconnect attempts are exhausted', async () => {
+    server.setOnConnection((ws) => ws.terminate());
+    const stream = new MerchantStream({
+      apiKey: TEST_API_KEY,
+      hmacSecret: TEST_HMAC_SECRET,
+      baseUrl: server.url,
+      options: {
+        reconnect: true,
+        reconnectMaxAttempts: 1,
+        reconnectBaseDelayMs: 5,
+        reconnectMaxDelayMs: 5,
+      },
+    });
+    await expect(stream.connect()).rejects.toThrow(/closed with code 1006/i);
+    await stream.close();
+  });
+
+  it('rejects an in-flight connect when close is called by the caller', async () => {
+    server.setOnConnection(() => {
+      // Leave the socket open without session.start.
+    });
+    const stream = new MerchantStream({
+      apiKey: TEST_API_KEY,
+      hmacSecret: TEST_HMAC_SECRET,
+      baseUrl: server.url,
+      options: { reconnect: true },
+    });
+    const connecting = stream.connect();
+    const rejected = expect(connecting).rejects.toThrow(/closed by caller/i);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await stream.close();
+    await rejected;
   });
 
   it('close() does not trigger reconnect', async () => {

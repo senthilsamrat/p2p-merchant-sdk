@@ -25,7 +25,9 @@ async function main(): Promise<void> {
     fiatCurrency: 'KRW',
     amount: '100.00000000',
     price: '1320.50',
-    paymentMethodIds: [requireEnv('MERCHANT_PAYMENT_METHOD_ID')]
+    paymentMethods: [requireEnv('MERCHANT_PAYMENT_METHOD')],
+    // Listing lifetime in minutes (15..43200), not a trade payment window.
+    timeLimit: 60
   });
   console.log('Created order:', order.orderId);
 

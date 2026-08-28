@@ -45,7 +45,8 @@ export function isRetryableStatus(status: number | undefined): boolean {
 // one would only delay a terminal error the caller needs to see.
 const RETRYABLE_CONFLICT_CODES = new Set([
   'TRANSFER_IN_PROGRESS',
-  'WITHDRAWAL_IN_PROGRESS'
+  'WITHDRAWAL_IN_PROGRESS',
+  'IDEMPOTENCY_IN_PROGRESS'
 ]);
 
 // An idempotency key is required before a 409 may be replayed. The key is what

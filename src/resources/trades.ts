@@ -9,9 +9,19 @@ import type {
   Message,
   Paginated,
   RequestOptions,
-  Trade
+  Trade,
+  TradeActionResult
 } from '../types/common.js';
 import { paginate } from './pagination.js';
+import {
+  expectObject,
+  normalizeMessage,
+  normalizeDisputeResponse,
+  normalizeTrade,
+  normalizeTradeAction,
+  optionalString,
+  unwrapObject
+} from '../utils/response.js';
 
 const BASE = '/api/v1/merchant/trades';
 // Trade chat is served by a different service from the rest of the trade
@@ -30,26 +40,30 @@ export class TradesResource {
    * @throws NotFoundError when the trade id is unknown or belongs to another merchant.
    */
   async get(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
-    return this.http.request<Trade>(
+    const response = await this.http.request<unknown>(
       { method: 'GET', path: `${BASE}/${encodeURIComponent(tradeId)}` },
       opts
+    );
+    return normalizeTrade(
+      unwrapObject(response, 'get trade response', ['trade']),
+      'get trade response.trade'
     );
   }
 
   /**
    * Lists trades matching the supplied filters.
    *
-   * @param opts - Filters: status, source (express/standard), limit, before cursor.
+   * @param opts - Filters: status, source (`quick_trade`/`marketplace`), limit, before cursor.
    * @param requestOpts - Per-request transport overrides.
    * @returns A page of matching trades with `hasMore` indicator.
    * @example
-   * const page = await client.trades.list({ status: 'PAID', limit: 25 });
+   * const page = await client.trades.list({ status: 'payment_sent', limit: 25 });
    */
   async list(
     opts: ListTradesOptions = {},
     requestOpts: RequestOptions = {}
   ): Promise<Paginated<Trade>> {
-    const items = await this.http.request<Trade[] | Paginated<Trade>>(
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
         path: BASE,
@@ -62,7 +76,7 @@ export class TradesResource {
       },
       requestOpts
     );
-    return normalizePage<Trade>(items, opts.limit);
+    return normalizeTradePage(response, opts.limit);
   }
 
   /**
@@ -76,10 +90,17 @@ export class TradesResource {
    * @returns The updated trade record with status advanced to PAID.
    * @throws ValidationError when the trade is not in a state that accepts payment-sent.
    */
-  async markPaymentSent(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
-    return this.http.request<Trade>(
+  async markPaymentSent(
+    tradeId: string,
+    opts: RequestOptions = {}
+  ): Promise<TradeActionResult> {
+    const response = await this.http.request<unknown>(
       { method: 'POST', path: `${BASE}/${encodeURIComponent(tradeId)}/payment-sent` },
       opts
+    );
+    return normalizeTradeAction(
+      unwrapObject(response, 'mark trade payment response', ['trade']),
+      'mark trade payment response.trade'
     );
   }
 
@@ -88,16 +109,26 @@ export class TradesResource {
    *
    * The server route is named `confirm-payment`; {@link release} is a
    * friendlier alias that calls this same endpoint.
+   * While settlement is running, the SDK retries the server's
+   * `IDEMPOTENCY_IN_PROGRESS` response with the same idempotency key. If the
+   * retry window ends first, poll {@link get} until the trade is terminal.
    *
    * @param tradeId - Trade identifier.
    * @param opts - Per-request transport overrides.
-   * @returns The updated trade record in COMPLETED state.
-   * @throws ValidationError when the trade is not in PAID status.
+   * @returns The action result in `completed` state once settlement finishes.
+   * @throws ValidationError when the trade is not in `payment_sent` status.
    */
-  async confirmPayment(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
-    return this.http.request<Trade>(
+  async confirmPayment(
+    tradeId: string,
+    opts: RequestOptions = {}
+  ): Promise<TradeActionResult> {
+    const response = await this.http.request<unknown>(
       { method: 'POST', path: `${BASE}/${encodeURIComponent(tradeId)}/confirm-payment` },
       opts
+    );
+    return normalizeTradeAction(
+      unwrapObject(response, 'confirm trade payment response', ['trade']),
+      'confirm trade payment response.trade'
     );
   }
 
@@ -106,9 +137,9 @@ export class TradesResource {
    *
    * @param tradeId - Trade identifier.
    * @param opts - Per-request transport overrides.
-   * @returns The updated trade record in COMPLETED state.
+   * @returns The action result in `completed` state.
    */
-  async release(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
+  async release(tradeId: string, opts: RequestOptions = {}): Promise<TradeActionResult> {
     return this.confirmPayment(tradeId, opts);
   }
 
@@ -120,10 +151,14 @@ export class TradesResource {
    * @returns The cancelled trade record.
    * @throws ValidationError when the trade is past the cancellable window (e.g., PAID).
    */
-  async cancel(tradeId: string, opts: RequestOptions = {}): Promise<Trade> {
-    return this.http.request<Trade>(
+  async cancel(tradeId: string, opts: RequestOptions = {}): Promise<TradeActionResult> {
+    const response = await this.http.request<unknown>(
       { method: 'POST', path: `${BASE}/${encodeURIComponent(tradeId)}/cancel` },
       opts
+    );
+    return normalizeTradeAction(
+      unwrapObject(response, 'cancel trade response', ['trade']),
+      'cancel trade response.trade'
     );
   }
 
@@ -149,7 +184,7 @@ export class TradesResource {
     input: { reason: string; evidence?: string[] },
     opts: RequestOptions = {}
   ): Promise<DisputeResponse> {
-    return this.http.request<DisputeResponse>(
+    const response = await this.http.request<unknown>(
       {
         method: 'POST',
         path: `${BASE}/${encodeURIComponent(tradeId)}/dispute`,
@@ -157,6 +192,7 @@ export class TradesResource {
       },
       opts
     );
+    return normalizeDisputeResponse(response);
   }
 
   /**
@@ -172,13 +208,18 @@ export class TradesResource {
     input: { content: string; type?: 'text' | 'image_url' },
     opts: RequestOptions = {}
   ): Promise<Message> {
-    return this.http.request<Message>(
+    const response = await this.http.request<unknown>(
       {
         method: 'POST',
         path: `${CHAT_BASE}/${encodeURIComponent(tradeId)}/messages`,
         body: input
       },
       opts
+    );
+    return normalizeMessage(
+      unwrapObject(response, 'send message response', ['message']),
+      tradeId,
+      'send message response.message'
     );
   }
 
@@ -186,66 +227,33 @@ export class TradesResource {
    * Lists messages on a trade thread.
    *
    * @param tradeId - Trade identifier.
-   * @param opts - Filters: `since` (ISO timestamp) and `limit`.
+   * @param opts - Filters: opaque `before` cursor and `limit`.
    * @param requestOpts - Per-request transport overrides.
    * @returns Object with `messages` array and `hasMore` flag.
    * @example
-   * const since = new Date(Date.now() - 60_000).toISOString();
-   * const { messages } = await client.trades.listMessages(tradeId, { since });
+   * const first = await client.trades.listMessages(tradeId, { limit: 50 });
+   * const second = await client.trades.listMessages(tradeId, {
+   *   limit: 50,
+   *   before: first.nextCursor
+   * });
    */
   async listMessages(
     tradeId: string,
     opts: ListMessagesOptions = {},
     requestOpts: RequestOptions = {}
   ): Promise<ListMessagesResponse> {
-    const raw = await this.http.request<Message[] | ListMessagesResponse>(
+    const response = await this.http.request<unknown>(
       {
         method: 'GET',
         path: `${CHAT_BASE}/${encodeURIComponent(tradeId)}/messages`,
         query: {
-          since: opts.since,
+          before: opts.before,
           limit: opts.limit
         }
       },
       requestOpts
     );
-    if (Array.isArray(raw)) {
-      const hasMore = opts.limit !== undefined ? raw.length >= opts.limit : false;
-      return { messages: raw, hasMore };
-    }
-    return raw;
-  }
-
-  /**
-   * Switches the merchant counterparty on an in-flight Express trade.
-   *
-   * Pre-payment only. Mints a new tradeId against a different merchant
-   * from the Express pool while preserving the buyer's original intent.
-   *
-   * @param tradeId - The original trade identifier.
-   * @param input - Optional `reason` annotation surfaced to the new merchant.
-   * @param opts - Per-request transport overrides.
-   * @returns Switch result with `previousTradeId` and `newTradeId`.
-   * @throws ValidationError when the trade is past the pre-payment window.
-   */
-  async switchMerchant(
-    tradeId: string,
-    input: { reason?: string } = {},
-    opts: RequestOptions = {}
-  ): Promise<{
-    success: boolean;
-    code: string;
-    previousTradeId: string;
-    newTradeId: string;
-  }> {
-    return this.http.request(
-      {
-        method: 'POST',
-        path: `/api/v1/merchant/quick/${encodeURIComponent(tradeId)}/switch-merchant`,
-        body: input
-      },
-      opts
-    );
+    return normalizeMessagePage(response, tradeId, opts.limit);
   }
 
   /**
@@ -258,8 +266,8 @@ export class TradesResource {
    * @param requestOpts - Per-request transport overrides.
    * @returns Async iterable of trades.
    * @example
-   * for await (const trade of client.trades.listAll({ status: 'COMPLETED' })) {
-   *   console.log(trade.id, trade.amount);
+   * for await (const trade of client.trades.listAll({ status: 'completed' })) {
+   *   console.log(trade.tradeId, trade.amount);
    * }
    */
   listAll(
@@ -281,11 +289,50 @@ export class TradesResource {
   }
 }
 
-function normalizePage<T>(raw: T[] | Paginated<T>, requestedLimit: number | undefined): Paginated<T> {
+function normalizeTradePage(raw: unknown, requestedLimit: number | undefined): Paginated<Trade> {
   if (Array.isArray(raw)) {
-    const items = raw;
+    const items = raw.map((item, index) => normalizeTrade(item, `list trades response[${index}]`));
     const hasMore = requestedLimit !== undefined ? items.length >= requestedLimit : false;
     return { items, hasMore };
   }
-  return raw;
+  const page = expectObject(raw, 'list trades response');
+  if (!Array.isArray(page.items) || typeof page.hasMore !== 'boolean') {
+    throw new Error('Invalid list trades response: expected items array and hasMore boolean');
+  }
+  const nextCursor = optionalString(page.nextCursor, 'list trades response.nextCursor');
+  return {
+    items: page.items.map((item, index) =>
+      normalizeTrade(item, `list trades response.items[${index}]`)
+    ),
+    hasMore: page.hasMore,
+    ...(nextCursor !== undefined ? { nextCursor } : {})
+  };
+}
+
+function normalizeMessagePage(
+  raw: unknown,
+  tradeId: string,
+  requestedLimit: number | undefined
+): ListMessagesResponse {
+  if (Array.isArray(raw)) {
+    const messages = raw.map((message, index) =>
+      normalizeMessage(message, tradeId, `list messages response[${index}]`)
+    );
+    const hasMore = requestedLimit !== undefined ? messages.length >= requestedLimit : false;
+    return { messages, hasMore };
+  }
+  const page = expectObject(raw, 'list messages response');
+  if (!Array.isArray(page.messages) || typeof page.hasMore !== 'boolean') {
+    throw new Error('Invalid list messages response: expected messages array and hasMore boolean');
+  }
+  const nextCursor = optionalString(page.nextCursor, 'list messages response.nextCursor');
+  const oldestMessageId = optionalString(page.oldestMessageId, 'list messages response.oldestMessageId');
+  return {
+    messages: page.messages.map((message, index) =>
+      normalizeMessage(message, tradeId, `list messages response.messages[${index}]`)
+    ),
+    hasMore: page.hasMore,
+    ...(nextCursor !== undefined ? { nextCursor } : {}),
+    ...(oldestMessageId !== undefined ? { oldestMessageId } : {})
+  };
 }

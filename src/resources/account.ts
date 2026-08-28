@@ -2,6 +2,7 @@
 
 import type { HttpTransport } from '../transport/httpTransport.js';
 import type { MerchantAccount, RequestOptions } from '../types/common.js';
+import { normalizeMerchantAccount } from '../utils/response.js';
 
 const BASE = '/api/v1/merchant';
 
@@ -11,7 +12,7 @@ export class AccountResource {
   /**
    * Fetches the calling merchant's account profile.
    *
-   * Returns the merchant's profile, tier, status, KYC level, and the
+   * Returns the merchant's profile, tier, status, KYC status, and the
    * effective permission set for the API key that signed the request.
    *
    * @param opts - Per-request overrides (idempotency key, extra headers, signal).
@@ -19,12 +20,13 @@ export class AccountResource {
    * @throws AuthenticationError when the API key or signature is rejected.
    * @example
    * const account = await client.account.get();
-   * console.log(account.tier, account.kycLevel);
+   * console.log(account.tier, account.kycStatus);
    */
   async get(opts: RequestOptions = {}): Promise<MerchantAccount> {
-    return this.http.request<MerchantAccount>(
+    const response = await this.http.request<unknown>(
       { method: 'GET', path: `${BASE}/account` },
       opts
     );
+    return normalizeMerchantAccount(response);
   }
 }

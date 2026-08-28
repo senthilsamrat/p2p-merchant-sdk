@@ -96,6 +96,11 @@ export class MarketResource {
   /**
    * Returns the calling merchant's marketplace rank for a specific order.
    *
+   * For a `scope=platform_users` key the order belongs to an end-user rather
+   * than to the key holder, and the server refuses the call without an acting
+   * user. Reach it as
+   * `client.platform.users(userId).market.getMyRank(orderId)` instead.
+   *
    * @param orderId - The merchant's order id to rank.
    * @param opts - Per-request transport overrides.
    * @returns Rank info with position, neighbouring offers, and competitive gap.

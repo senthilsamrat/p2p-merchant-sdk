@@ -42,6 +42,9 @@ export {
   ScopedQuickTradeResource
 } from './resources/platform/index.js';
 export type * from './resources/platform/types.js';
+// Exported as values so callers can enumerate what a deposit address can be
+// issued for at runtime, for a chain picker or their own validation.
+export { DEPOSIT_CURRENCIES, DEPOSIT_NETWORKS } from './resources/platform/types.js';
 
 // Webhook verifier is also re-exported here as a convenience even though
 // the recommended import path for verify-only consumers is the

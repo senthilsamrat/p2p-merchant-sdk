@@ -66,9 +66,35 @@ export interface StartKycInput {
 }
 
 export interface StartKycResponse {
-  kycSessionId: string;
-  hostedPageUrl: string;
+  // Null until the vendor creates an applicant, which happens when the
+  // end-user actually opens the flow rather than when the session is created.
+  kycSessionId: string | null;
+  // Redirect the end-user here. Honours returnUrl and needs no vendor code in
+  // your frontend. Null only if the vendor could not mint a link, in which
+  // case sdkToken is still usable.
+  hostedPageUrl: string | null;
+  // For platforms that would rather embed the vendor widget and keep the
+  // end-user inside their own page.
+  sdkToken: string;
+  levelName: string;
   expiresAt: string;
+}
+
+// Accepting an order from the marketplace, which opens a trade against it.
+export interface AcceptOrderInput {
+  // The order to accept. Must be open, must not belong to this end-user, and
+  // must have room for the amount.
+  orderId: string;
+  // Crypto amount to trade, as a decimal string. Has to sit inside the order's
+  // own min and max, and inside the end-user's KYC per-trade cap.
+  amount: string;
+  // One of the payment methods the order accepts, by the display name the
+  // order lists, for example 'Bank Transfer'.
+  paymentMethod: string;
+  // Required. Opening a trade commits funds, so a retry must not create a
+  // second one. Re-sending the same key returns the original trade rather than
+  // opening another.
+  idempotencyKey: string;
 }
 
 export interface KycStatus {
@@ -100,11 +126,22 @@ export interface ScopedWalletHold {
 export interface ScopedLedgerEntry {
   entryId: string;
   type: string;
+  // Which way the money moved. Derived from the entry type rather than the
+  // sign of the amount, because the sign is not consistent across the paths
+  // that write these rows.
+  direction: 'in' | 'out';
   currency: string;
   amount: string;
   balanceAfter: string;
-  reference?: string;
+  // The identifier for whichever flow produced the row. Exactly one is set
+  // on any given entry and the rest are null.
+  tradeId: string | null;
+  escrowId: string | null;
+  withdrawalId: string | null;
+  depositId: string | null;
   createdAt: string;
+  // The same instant as createdAt, kept because the server has always sent it.
+  timestamp: string;
 }
 
 export interface ListLedgerOptions {
@@ -141,6 +178,12 @@ export interface TransferResult {
   currency: string;
   status: string;
   createdAt: string;
+  // Same instant as createdAt, kept for callers already reading it.
+  timestamp?: string;
+  // A settled replay is answered with the stored 2xx body, which is
+  // indistinguishable from the original, so nothing marks it as one. A
+  // still-settling call is a 409 the transport replays on the same key.
+  // replay?: boolean;
 }
 
 export interface WithdrawInput {
@@ -158,16 +201,38 @@ export interface WithdrawResult {
   currency: string;
   address: string;
   createdAt: string;
+  // Same instant as createdAt, kept for callers already reading it.
+  timestamp?: string;
+  // A settled replay is answered with the stored 2xx body, which is
+  // indistinguishable from the original, so nothing marks it as one. A
+  // still-settling call is a 409 the transport replays on the same key.
+  // replay?: boolean;
 }
 
+// Networks an end-user deposit address can be issued on. ERC20 and BEP20 share
+// one EVM address; TRC20 is a separate address entirely.
+export const DEPOSIT_NETWORKS = ['ERC20', 'TRC20', 'BEP20'] as const;
+
+export type DepositNetwork = (typeof DEPOSIT_NETWORKS)[number];
+
+// Currencies an end-user deposit address can be issued for. Anything else is
+// refused, so the type names the set rather than leaving it to a runtime error.
+export const DEPOSIT_CURRENCIES = ['USDT'] as const;
+
+export type DepositCurrency = (typeof DEPOSIT_CURRENCIES)[number];
+
 export interface DepositAddressInput {
-  currency: string;
-  network?: string;
+  currency: DepositCurrency;
+  // Required and without a default. The address returned belongs to this chain
+  // and no other, so an omitted or unrecognised value is refused rather than
+  // answered with whichever address the user happens to have.
+  network: DepositNetwork;
 }
 
 export interface DepositAddress {
-  currency: string;
-  network: string;
+  currency: DepositCurrency;
+  // Always describes the address in this same response.
+  network: DepositNetwork;
   address: string;
   memo?: string;
   qrCodeUrl?: string;

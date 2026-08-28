@@ -81,7 +81,8 @@ export {
   ScopedWalletResource,
   ScopedPaymentMethodsResource,
   ScopedKycResource,
-  ScopedMarketplaceResource
+  ScopedMarketplaceResource,
+  ScopedMarketResource
 } from './users.js';
 export { RevshareResource } from './revshare.js';
 export { PlatformWalletResource } from './wallet.js';

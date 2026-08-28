@@ -14,6 +14,9 @@ import type {
 import { paginate } from './pagination.js';
 
 const BASE = '/api/v1/merchant/trades';
+// Trade chat is served by a different service from the rest of the trade
+// surface, so it is reached under its own path rather than beneath the trade.
+const CHAT_BASE = '/api/v1/merchant/chat/trades';
 
 export class TradesResource {
   constructor(private readonly http: HttpTransport) {}
@@ -172,7 +175,7 @@ export class TradesResource {
     return this.http.request<Message>(
       {
         method: 'POST',
-        path: `${BASE}/${encodeURIComponent(tradeId)}/messages`,
+        path: `${CHAT_BASE}/${encodeURIComponent(tradeId)}/messages`,
         body: input
       },
       opts
@@ -198,7 +201,7 @@ export class TradesResource {
     const raw = await this.http.request<Message[] | ListMessagesResponse>(
       {
         method: 'GET',
-        path: `${BASE}/${encodeURIComponent(tradeId)}/messages`,
+        path: `${CHAT_BASE}/${encodeURIComponent(tradeId)}/messages`,
         query: {
           since: opts.since,
           limit: opts.limit

@@ -10,6 +10,7 @@ import type {
   Message,
   Order,
   Paginated,
+  RankInfo,
   RequestOptions,
   Trade,
   UpdateOrderInput
@@ -32,6 +33,7 @@ import type {
   ScopedWalletBalance,
   ScopedWalletHold,
   SoftDeleteUserInput,
+  AcceptOrderInput,
   StartKycInput,
   StartKycResponse,
   SuspendUserInput,
@@ -168,6 +170,10 @@ export class UserScopedClient {
   // through the X-PM-Acting-User binding so the matcher applies the user's
   // tenancy bucket and KYC level.
   public readonly quickTrade: ScopedQuickTradeResource;
+  // Market reads whose subject is one end-user's own order. The pair-keyed
+  // market data on the top-level client is identical for every caller and
+  // stays there.
+  public readonly market: ScopedMarketResource;
 
   private readonly http: HttpTransport;
 
@@ -181,6 +187,7 @@ export class UserScopedClient {
     this.kyc = new ScopedKycResource(http, userId);
     this.marketplace = new ScopedMarketplaceResource(http, userId);
     this.quickTrade = new ScopedQuickTradeResource(http, userId);
+    this.market = new ScopedMarketResource(http, userId);
   }
 
   /**
@@ -417,6 +424,54 @@ export class ScopedTradesResource {
   ) {}
 
   /**
+   * Accepts an order from the marketplace on behalf of this end-user, opening
+   * a trade against it.
+   *
+   * This is the counterpart to browsing the marketplace: the end-user picks an
+   * order someone else posted and takes it. Their own orders are refused, as
+   * are orders belonging to another platform's users.
+   *
+   * The trade opens in the payment stage. From there the buyer calls
+   * markPaymentSent once they have paid off-platform, and the seller calls
+   * confirmPayment to release the crypto.
+   *
+   * @param input - Order to accept, amount, payment method and an idempotency key.
+   * @param opts - Per-request transport overrides.
+   * @returns The trade that was opened.
+   */
+  async create(input: AcceptOrderInput, opts: RequestOptions = {}): Promise<Trade> {
+    if (!input?.orderId) {
+      throw new Error('trades.create: orderId is required');
+    }
+    if (!input.amount || typeof input.amount !== 'string') {
+      throw new Error('trades.create: amount is required (decimal string)');
+    }
+    if (!input.paymentMethod) {
+      throw new Error('trades.create: paymentMethod is required');
+    }
+    if (!input.idempotencyKey) {
+      // Required rather than auto-generated. A generated key would differ on a
+      // caller's own retry and could open a second trade against the order.
+      throw new Error('trades.create: idempotencyKey is required');
+    }
+
+    const merged: RequestOptions = withActingUser(opts, this.userId);
+    merged.idempotencyKey = input.idempotencyKey;
+    // The trade saga routinely outlasts the default client timeout, and giving
+    // up early leaves the caller unsure whether a trade was opened.
+    if (merged.timeoutMs === undefined) {
+      merged.timeoutMs = 120_000;
+    }
+
+    const { idempotencyKey: _drop, ...body } = input;
+    const envelope = await this.http.request<unknown>(
+      { method: 'POST', path: '/api/v1/merchant/trades', body },
+      merged
+    );
+    return unwrapEnvelope<Trade>(envelope, 'trade');
+  }
+
+  /**
    * Lists this end-user's trades.
    *
    * @param opts - Filters: `status`, `source`, `limit`, `before` cursor.
@@ -575,11 +630,33 @@ export class ScopedTradesResource {
     return this.http.request<Message>(
       {
         method: 'POST',
-        path: `/api/v1/merchant/trades/${encodeURIComponent(tradeId)}/messages`,
+        path: `/api/v1/merchant/chat/trades/${encodeURIComponent(tradeId)}/messages`,
         body: input
       },
       withActingUser(opts, this.userId)
     );
+  }
+
+  /**
+   * Reads the chat thread on a trade, as this end-user sees it.
+   *
+   * Only a party to the trade can read its thread. The acting user is carried
+   * on the request, so this returns the thread from that user's side and a
+   * user who is not on the trade is refused.
+   *
+   * @param tradeId - Trade identifier.
+   * @param opts - Per-request transport overrides.
+   * @returns The messages on the thread.
+   */
+  async getMessages(tradeId: string, opts: RequestOptions = {}): Promise<Message[]> {
+    const envelope = await this.http.request<unknown>(
+      {
+        method: 'GET',
+        path: `/api/v1/merchant/chat/trades/${encodeURIComponent(tradeId)}/messages`
+      },
+      withActingUser(opts, this.userId)
+    );
+    return unwrapEnvelope<Message[]>(envelope, 'messages');
   }
 }
 
@@ -689,7 +766,9 @@ export class ScopedWalletResource {
    * @param opts - Per-request transport overrides.
    * @returns Transfer result with ledger ids and settled balances.
    * @throws ValidationError when amount or destination fails server-side checks.
-   * @throws PermissionDeniedError on cross-tenant attempts.
+   * @throws NotFoundError on cross-tenant attempts. The server answers as if
+   * the destination did not exist, so the response cannot confirm that a
+   * userId is live on another tenant.
    */
   async transfer(input: TransferInput, opts: RequestOptions = {}): Promise<TransferResult> {
     const merged = withActingUser(opts, this.userId);
@@ -732,14 +811,26 @@ export class ScopedWalletResource {
   }
 
   /**
-   * Returns a deposit address for this end-user on the requested currency/network.
+   * Returns a deposit address for this end-user on the requested network.
    *
    * Addresses are HD-derived and persisted across calls; repeated calls
-   * return the same address.
+   * return the same address. `network` is required and has no default, and the
+   * returned `network` always describes the address that came back: a request
+   * the platform cannot serve on that chain fails rather than answering with an
+   * address from another one.
    *
-   * @param input - `currency` and `network` selectors.
+   * ERC20 and BEP20 return the same 0x address, since both are EVM chains
+   * derived from one key. TRC20 returns a different address.
+   *
+   * Sharing one address does not make the two interchangeable. Asking for the
+   * network the end-user will actually send on is what puts the address under
+   * that chain's deposit monitoring, so an address obtained for ERC20 and then
+   * presented for a BEP20 deposit is not watched and the deposit is not
+   * credited until it is reconciled by hand. Call once per network offered.
+   *
+   * @param input - `currency` (USDT only) and the required `network`.
    * @param opts - Per-request transport overrides.
-   * @returns Deposit address with QR-friendly representation.
+   * @returns Deposit address for the requested network.
    */
   async getDepositAddress(
     input: DepositAddressInput,
@@ -771,14 +862,24 @@ export class ScopedPaymentMethodsResource {
    * @returns Array of payment methods (account numbers masked).
    */
   async list(opts: RequestOptions = {}): Promise<ScopedPaymentMethod[]> {
-    return this.http.request<ScopedPaymentMethod[]>(
+    // Server returns {methods: [...]} envelope; extract the array.
+    const envelope = await this.http.request<
+      ScopedPaymentMethod[] | { methods: ScopedPaymentMethod[] }
+    >(
       { method: 'GET', path: '/api/v1/merchant/payment-methods' },
       withActingUser(opts, this.userId)
     );
+    if (Array.isArray(envelope)) return envelope;
+    return Array.isArray(envelope?.methods) ? envelope.methods : [];
   }
 
   /**
    * Adds a payment method to this end-user's account.
+   *
+   * NOT YET SERVED. merchant-service exposes only GET /payment-methods, so
+   * this call reaches no handler and fails at the routing layer. It stays
+   * declared because the shape is settled and callers should not have to
+   * change their code once the endpoint ships.
    *
    * @param input - Payment method type, account details, optional metadata.
    * @param opts - Per-request transport overrides.
@@ -796,6 +897,11 @@ export class ScopedPaymentMethodsResource {
 
   /**
    * Removes a payment method from this end-user's account.
+   *
+   * NOT YET SERVED. merchant-service exposes only GET /payment-methods, so
+   * this call reaches no handler and fails at the routing layer. It stays
+   * declared because the shape is settled and callers should not have to
+   * change their code once the endpoint ships.
    *
    * @param paymentMethodId - Payment method identifier.
    * @param opts - Per-request transport overrides.
@@ -824,13 +930,14 @@ export class ScopedKycResource {
   /**
    * Starts a white-labelled KYC flow for this end-user.
    *
-   * Returns a hosted page URL the platform redirects the end-user to. The
-   * KYC vendor calls back into merchant-service which emits
+   * Returns both ways in, and you pick. Redirect the end-user to
+   * `hostedPageUrl`, or embed the vendor widget yourself with `sdkToken`.
+   * The vendor calls back into merchant-service, which emits
    * `merchant.user.kyc_updated` webhooks on each status change.
    *
    * @param input - KYC level, locale, and any vendor-specific options.
    * @param opts - Per-request transport overrides.
-   * @returns Hosted-page URL and provider correlation ids.
+   * @returns Hosted-page URL, an embeddable token, and provider correlation ids.
    */
   async start(input: StartKycInput, opts: RequestOptions = {}): Promise<StartKycResponse> {
     return this.http.request<StartKycResponse>(
@@ -923,6 +1030,39 @@ export class ScopedMarketplaceResource {
   async disable(opts: RequestOptions = {}): Promise<MarketplaceDisableResult> {
     return this.http.request<MarketplaceDisableResult>(
       { method: 'PATCH', path: this.root(), body: { publishEnabled: false } },
+      withActingUser(opts, this.userId)
+    );
+  }
+}
+
+// Per-end-user market reads. my-rank ranks one order against its competitors
+// and the order belongs to an end-user, so the server classifies it as a
+// per-user route and refuses it without an acting user. The pair-keyed
+// endpoints (best-prices, active-ads, reference-price) return the same answer
+// for every caller and are reached through client.market instead.
+export class ScopedMarketResource {
+  constructor(
+    private readonly http: HttpTransport,
+    private readonly userId: string
+  ) {}
+
+  /**
+   * Returns this end-user's marketplace rank for one of their orders.
+   *
+   * @param orderId - An order belonging to this end-user.
+   * @param opts - Per-request transport overrides.
+   * @returns Rank info with position, competitor count, and score factors.
+   * @throws NotImplementedError when the endpoint is still stubbed.
+   * @throws NotFoundError when the order id is unknown.
+   * @example
+   * const rank = await client.platform.users('user_abc').market.getMyRank('order_1');
+   */
+  async getMyRank(orderId: string, opts: RequestOptions = {}): Promise<RankInfo> {
+    return this.http.request<RankInfo>(
+      {
+        method: 'GET',
+        path: `/api/v1/merchant/market/my-rank/${encodeURIComponent(orderId)}`
+      },
       withActingUser(opts, this.userId)
     );
   }

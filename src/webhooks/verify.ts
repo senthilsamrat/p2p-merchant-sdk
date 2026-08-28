@@ -23,7 +23,8 @@ export interface VerifyWebhookOptions {
   secret: string;
   // Optional max age. Defaults to 5 minutes when timestamp is provided.
   toleranceMs?: number;
-  // Optional X-Webhook-Timestamp header. When set with toleranceMs we also
+  // Optional X-Webhook-Timestamp header, as delivered: an ISO instant.
+  // When set with toleranceMs we also
   // reject payloads that drift too far in either direction.
   timestamp?: string;
   // Override Date.now for testing. Internal.
@@ -43,6 +44,18 @@ export interface VerifyWebhookResult {
 
 const DEFAULT_TOLERANCE_MS = 5 * 60 * 1000;
 
+// The header carries an ISO instant, which is what the delivery puts on the
+// wire. Epoch milliseconds are accepted too, since a receiver that already
+// normalised the value before calling should not be turned away for it.
+function parseTimestamp(value: string): number | null {
+  const asNumber = Number(value);
+  if (Number.isFinite(asNumber)) {
+    return asNumber;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 export function verifyWebhook(opts: VerifyWebhookOptions): VerifyWebhookResult {
   if (!opts.signature || typeof opts.signature !== 'string') {
     return { valid: false, reason: 'malformed' };
@@ -58,8 +71,8 @@ export function verifyWebhook(opts: VerifyWebhookOptions): VerifyWebhookResult {
   // payloads.
   if (opts.timestamp !== undefined) {
     const tolerance = opts.toleranceMs ?? DEFAULT_TOLERANCE_MS;
-    const ts = Number(opts.timestamp);
-    if (!Number.isFinite(ts)) {
+    const ts = parseTimestamp(opts.timestamp);
+    if (ts === null) {
       return { valid: false, reason: 'malformed' };
     }
     const now = (opts.now ?? Date.now)();

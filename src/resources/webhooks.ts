@@ -58,8 +58,17 @@ export class WebhooksResource {
    * @returns Object with the new `secret` value.
    */
   async regenerateSecret(opts: RequestOptions = {}): Promise<{ secret: string }> {
+    // The server refuses a rotation that does not carry an explicit
+    // acknowledgement, because it invalidates every signature the
+    // merchant's receivers are currently verifying. Calling this method is
+    // that acknowledgement, so the flag is sent on the caller's behalf
+    // rather than surfaced as an argument they could omit and be confused by.
     return this.http.request<{ secret: string }>(
-      { method: 'POST', path: `${BASE}/regenerate-secret` },
+      {
+        method: 'POST',
+        path: `${BASE}/regenerate-secret`,
+        body: { confirmRegenerate: true }
+      },
       opts
     );
   }
@@ -99,10 +108,16 @@ export class WebhooksResource {
    * @returns Array of allowed event-name strings.
    */
   async getAllowedEvents(opts: RequestOptions = {}): Promise<string[]> {
-    return this.http.request<string[]>(
+    // The service wraps this list the way its sibling webhook routes wrap
+    // theirs, so both shapes are accepted rather than assuming the bare array.
+    const raw = await this.http.request<string[] | { events: string[] }>(
       { method: 'GET', path: `${BASE}/allowed-events` },
       opts
     );
+    if (Array.isArray(raw)) {
+      return raw;
+    }
+    return Array.isArray(raw?.events) ? raw.events : [];
   }
 
   /**

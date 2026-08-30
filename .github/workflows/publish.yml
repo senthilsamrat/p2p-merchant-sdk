@@ -11,14 +11,10 @@ on:
       - 'v*.*.*'
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'npm dist-tag (use beta until 1.0 GA)'
+      release_tag:
+        description: 'Existing release tag to publish (for example v0.3.0-beta.0)'
         required: true
-        default: 'beta'
-        type: choice
-        options:
-          - beta
-          - latest
+        type: string
 
 permissions:
   contents: read
@@ -32,6 +28,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -44,10 +42,13 @@ jobs:
         run: npm ci
 
       - name: Verify version matches tag
-        if: github.event_name == 'push'
         run: |
           PKG_VERSION="v$(node -p "require('./package.json').version")"
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}"
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::Invalid release tag: $TAG"; exit 1 ;;
+          esac
           if [ "$PKG_VERSION" != "$TAG" ]; then
             echo "::error::package.json version ($PKG_VERSION) does not match git tag ($TAG)"
             exit 1
@@ -67,10 +68,13 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
 
       - name: Publish to npm with provenance
-        run: npm publish --provenance --access public --tag ${{ inputs.tag || 'beta' }}
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [[ "$PKG_VERSION" == *-* ]]; then DIST_TAG=beta; else DIST_TAG=latest; fi
+          npm publish --provenance --access public --tag "$DIST_TAG"
 
       - name: Print published version
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
           echo "Published @plantmewallet/merchant-sdk@$PKG_VERSION"
-          echo "Install with: npm install @plantmewallet/merchant-sdk@${{ inputs.tag || 'beta' }}"
+          echo "Install with: npm install @plantmewallet/merchant-sdk@$PKG_VERSION"

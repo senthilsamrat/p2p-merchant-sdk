@@ -122,7 +122,6 @@ decisions:
 | `NetworkError`              | `ECONNREFUSED`, `ECONNRESET`, etc                    |
 | `ServerError`               | 5xx                                                  |
 | `TimeoutError`              | axios timeout                                        |
-| `WebhookVerificationError`  | thrown by the verify helper                          |
 | `NotImplementedError`       | 501 (endpoint reserved but not yet shipped)          |
 
 `MerchantSdkError` is the base class. All errors carry `.code`, `.status`,
@@ -148,7 +147,6 @@ specific code is promoted to a dedicated subclass.
 | `NETWORK_ERROR` | Transport failure before any HTTP response (`ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `EPIPE`, `EAI_AGAIN`) | Retryable; the SDK retries automatically. Persistent failures indicate an outage or local DNS issue |
 | `REQUEST_TIMEOUT` | Axios client-side timeout fired before the server responded | Increase `timeout`, or investigate gateway latency |
 | `SERVER_ERROR` | 5xx from the backend | Retryable; the SDK retries automatically. If persistent, surface to ops |
-| `WEBHOOK_VERIFICATION_FAILED` | Thrown by `verifyWebhook` when the signature does not match | Reject the webhook with 401; check that `MERCHANT_WEBHOOK_SECRET` is in sync with the value the dashboard issued; check for clock skew if the timestamp is enforced |
 | `ENDPOINT_PENDING` | 501. Endpoint is reserved in the contract but not yet implemented server-side | Defer the call until the corresponding server stub ships; see `NotImplementedError` |
 | `FUND_USER_AML_STRUCTURING_DETECTED` | 429 from the platform fund-user route when the structuring detector trips across the sliding compliance windows | Stop the funding loop, route to compliance review, do NOT auto-retry. Surface a distinct compliance message to the operator |
 | `FUND_USER_2FA_REQUIRED` | 403. High-value fund-user transfer (>$10K USD-equiv) requires a fresh TOTP in `X-PM-Owner-2FA` | Use `client.with2FA(token).platform.users(uid).wallet.fundUser(...)` to inject the header on the next call |

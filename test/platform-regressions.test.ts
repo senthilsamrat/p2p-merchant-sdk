@@ -108,6 +108,16 @@ describe('client.platform.wallet.fundUser', () => {
 });
 
 describe('client.platform.users(userId).paymentMethods.list', () => {
+  it('only advertises the read operation served by merchant-service', () => {
+    const { client } = buildClient([]);
+    const paymentMethods = client.platform.users('user_a').paymentMethods as unknown as
+      Record<string, unknown>;
+
+    expect(paymentMethods.list).toBeTypeOf('function');
+    expect(paymentMethods.add).toBeUndefined();
+    expect(paymentMethods.remove).toBeUndefined();
+  });
+
   it('unwraps the {methods:[...]} envelope', async () => {
     const { client, captured } = buildClient([
       ok({

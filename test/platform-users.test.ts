@@ -52,6 +52,17 @@ function buildClient() {
               updatedAt: '2026-08-29T00:00:00.000Z'
             }
           }
+        : cfg.url === '/api/v1/merchant/account'
+          ? {
+              merchantId: 'merchant_test',
+              tier: 'enterprise',
+              status: 'active',
+              expressEligible: true,
+              expressAvailable: false,
+              kycStatus: 'verified',
+              permissions: ['account:read'],
+              createdAt: '2026-08-29T00:00:00.000Z'
+            }
         : cfg.url?.includes('/wallet/balance')
           ? { balances: [] }
           : { ok: true };

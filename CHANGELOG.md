@@ -38,6 +38,9 @@ pin `~0.2.1-beta` if you want to opt out of incidental changes.
 
 ### Changed
 
+- **Breaking.** Removed `client.platform.users(uid).paymentMethods.add()` and
+  `.remove()` because merchant-service does not serve those write routes.
+  The supported scoped payment-method surface is read-only through `.list()`.
 - **Breaking.** `CreateOrderInput.paymentMethodIds` becomes `paymentMethods`
   and takes the display names the service publishes per fiat currency, for
   example `Bank Transfer` or `PayNow`. The set is validated against

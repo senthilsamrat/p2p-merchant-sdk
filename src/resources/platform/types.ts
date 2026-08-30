@@ -324,14 +324,6 @@ export interface PlatformFundUserResult {
   status: 'completed';
 }
 
-export interface AddPaymentMethodInput {
-  type: string;
-  bank?: string;
-  accountNumber?: string;
-  accountHolder?: string;
-  metadata?: Record<string, unknown>;
-}
-
 // Revshare reporting under /api/v1/merchant/revshare/*.
 export type FeeSplitTarget = 'merchant' | 'platform' | 'house';
 

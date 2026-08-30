@@ -150,7 +150,7 @@ describe('trade and chat contracts', () => {
 
   it('unwraps dispute responses', async () => {
     const { client } = buildClient([{ dispute: { disputeId: 'd-1', status: 'open' } }]);
-    await expect(client.trades.dispute('t-1', { reason: 'payment_not_received' }))
+    await expect(client.trades.openDispute('t-1', { reason: 'payment_not_received' }))
       .resolves.toEqual({ disputeId: 'd-1', status: 'open' });
   });
 });

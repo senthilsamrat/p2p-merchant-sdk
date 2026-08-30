@@ -110,6 +110,8 @@ export type CloseReason =
 export interface StreamOptions {
   // Override the default base URL. wss:// in production, ws:// for local dev.
   baseUrl?: string;
+  // Permit plaintext WS to a non-loopback host. Development environments only.
+  allowInsecureTransport?: boolean;
   // recvWindow header passed on the upgrade. Server clamps to its own range.
   recvWindow?: number;
   // Auto-reconnect on transient close codes. Disable for one-shot clients.
@@ -139,6 +141,7 @@ export interface MerchantStreamConstructorOpts {
   hmacSecret: string;
   baseUrl?: string;
   options?: StreamOptions;
+  allowInsecureTransport?: boolean;
 }
 
 // Payload shape passed to the 'disconnected' listener. willReconnect lets

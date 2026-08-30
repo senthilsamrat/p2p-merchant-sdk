@@ -49,6 +49,13 @@ for await (const trade of client.trades.listAll({ status: 'completed' })) {
 
 A complete runnable script lives under `examples/simple-placer`.
 
+The SDK rejects plaintext HTTP and WebSocket endpoints on non-loopback hosts
+because API keys and HMAC signatures would cross the network unencrypted.
+`http://localhost`, `http://127.0.0.1`, and their WebSocket equivalents remain
+available for local development. An explicitly trusted private development
+network can opt in with `allowInsecureTransport: true`; production integrations
+should always use HTTPS/WSS.
+
 ## Authentication
 
 Every request to `/api/v1/merchant/*` carries five headers:

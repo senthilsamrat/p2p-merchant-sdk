@@ -53,6 +53,7 @@ import {
 } from './types.js';
 import { buildHandshakeHeaders } from './handshake.js';
 import { ResumeBuffer } from './resumeBuffer.js';
+import { assertSecureTransportUrl } from '../transport/urlSafety.js';
 
 // Close codes mirrored from merchant-service/src/websocket/types.ts. We keep
 // our own copy because importing from the server would couple the SDK to
@@ -200,10 +201,17 @@ export class MerchantStream extends EventEmitter {
     this.apiKey = opts.apiKey;
     this.hmacSecret = opts.hmacSecret;
     this.baseUrl = toWsBaseUrl(opts.baseUrl ?? STREAM_DEFAULTS.baseUrl);
+    assertSecureTransportUrl(
+      this.baseUrl,
+      opts.allowInsecureTransport === true || opts.options?.allowInsecureTransport === true,
+      'MerchantStream'
+    );
 
     const o = opts.options ?? {};
     this.opts = {
       baseUrl: this.baseUrl,
+      allowInsecureTransport:
+        opts.allowInsecureTransport === true || o.allowInsecureTransport === true,
       recvWindow: o.recvWindow ?? STREAM_DEFAULTS.recvWindow,
       reconnect: o.reconnect ?? STREAM_DEFAULTS.reconnect,
       reconnectMaxAttempts: o.reconnectMaxAttempts ?? STREAM_DEFAULTS.reconnectMaxAttempts,

@@ -34,6 +34,7 @@ import {
 } from './retry.js';
 import { ClockDriftTracker, clampRecvWindow } from './recvWindow.js';
 import { buildProxyAgents } from './proxyAgent.js';
+import { assertSecureTransportUrl } from './urlSafety.js';
 import {
   AuthenticationError,
   FUND_USER_ERROR_CODES,
@@ -66,6 +67,7 @@ export interface HttpTransportConfig {
   retry: RetryConfig;
   clock: ClockDriftTracker;
   userAgent: string;
+  allowInsecureTransport?: boolean;
 }
 
 export interface RequestSpec<TBody = unknown> {
@@ -84,6 +86,11 @@ export class HttpTransport {
   private closed = false;
 
   constructor(config: HttpTransportConfig) {
+    assertSecureTransportUrl(
+      config.baseUrl,
+      config.allowInsecureTransport === true,
+      'HttpTransport'
+    );
     this.config = config;
     // Honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY for corporate VPN setups.
     // axios's bundled proxy handling cannot tunnel HTTPS through an HTTP
@@ -259,6 +266,10 @@ export class HttpTransport {
       headers,
       timeout: opts.timeoutMs ?? this.config.timeoutMs,
       signal: opts.signal,
+      // Signed credentials must never be forwarded to a redirect target.
+      // The public time endpoint is unsigned and retains normal redirect
+      // behavior because it carries no API key or HMAC headers.
+      ...(opts.unsigned === true ? {} : { maxRedirects: 0 }),
       // Force string response so we own JSON parsing and can return raw
       // text on parse failure with a useful error message.
       responseType: 'text'

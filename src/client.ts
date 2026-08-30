@@ -33,6 +33,9 @@ export interface MerchantClientOptions {
   // Override the default base URL. Falls back to env MERCHANT_API_BASE_URL
   // and finally to the production default.
   baseUrl?: string;
+  // Permit credential-bearing plaintext HTTP/WS to a non-loopback host.
+  // Intended only for explicitly trusted development networks.
+  allowInsecureTransport?: boolean;
   // Server-side recvWindow in ms. Server clamps to [1000, 30000]; default 5000.
   recvWindow?: number;
   // Request timeout in ms. Default 10000.
@@ -123,7 +126,8 @@ export class MerchantClient {
       timeoutMs: timeout,
       retry,
       clock: this.clock,
-      userAgent
+      userAgent,
+      allowInsecureTransport: options.allowInsecureTransport
     });
 
     this.account = new AccountResource(this.transport);
@@ -146,6 +150,8 @@ export class MerchantClient {
       hmacSecret: options.hmacSecret,
       baseUrl: options.stream?.baseUrl ?? baseUrl,
       options: options.stream,
+      allowInsecureTransport:
+        options.stream?.allowInsecureTransport ?? options.allowInsecureTransport,
     });
 
     // Fire-and-forget initial clock sample. We do not await so constructor

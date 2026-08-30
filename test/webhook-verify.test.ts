@@ -9,11 +9,21 @@ const SECRET = 'whsec_test_supersecret';
 const PAYLOAD = JSON.stringify({
   id: 'evt_123',
   type: 'merchant.trade.completed',
+  timestamp: '2023-11-14T22:13:20.000Z',
   data: { tradeId: 't_1' }
 });
 
 function sign(payload: string, secret: string): string {
   return createHmac('sha256', secret).update(payload).digest('hex');
+}
+
+function payloadAt(timestamp: string): string {
+  return JSON.stringify({
+    id: 'evt_123',
+    type: 'merchant.trade.completed',
+    timestamp,
+    data: { tradeId: 't_1' }
+  });
 }
 
 describe('verifyWebhook - happy path', () => {
@@ -75,14 +85,14 @@ describe('verifyWebhook - length-mismatched signature', () => {
 
 describe('verifyWebhook - timestamp tolerance', () => {
   it('rejects when timestamp is older than tolerance', () => {
-    const sig = sign(PAYLOAD, SECRET);
     const now = 1_700_000_000_000;
-    const tenMinAgo = now - 10 * 60 * 1000;
+    const tenMinAgo = new Date(now - 10 * 60 * 1000).toISOString();
+    const payload = payloadAt(tenMinAgo);
     const r = verifyWebhook({
-      payload: PAYLOAD,
-      signature: sig,
+      payload,
+      signature: sign(payload, SECRET),
       secret: SECRET,
-      timestamp: String(tenMinAgo),
+      timestamp: tenMinAgo,
       toleranceMs: 5 * 60 * 1000,
       now: () => now
     });
@@ -91,14 +101,14 @@ describe('verifyWebhook - timestamp tolerance', () => {
   });
 
   it('rejects when timestamp is too far in the future', () => {
-    const sig = sign(PAYLOAD, SECRET);
     const now = 1_700_000_000_000;
-    const tenMinAhead = now + 10 * 60 * 1000;
+    const tenMinAhead = new Date(now + 10 * 60 * 1000).toISOString();
+    const payload = payloadAt(tenMinAhead);
     const r = verifyWebhook({
-      payload: PAYLOAD,
-      signature: sig,
+      payload,
+      signature: sign(payload, SECRET),
       secret: SECRET,
-      timestamp: String(tenMinAhead),
+      timestamp: tenMinAhead,
       toleranceMs: 5 * 60 * 1000,
       now: () => now
     });
@@ -107,14 +117,14 @@ describe('verifyWebhook - timestamp tolerance', () => {
   });
 
   it('accepts when timestamp is within tolerance', () => {
-    const sig = sign(PAYLOAD, SECRET);
     const now = 1_700_000_000_000;
-    const fourMinAgo = now - 4 * 60 * 1000;
+    const fourMinAgo = new Date(now - 4 * 60 * 1000).toISOString();
+    const payload = payloadAt(fourMinAgo);
     const r = verifyWebhook({
-      payload: PAYLOAD,
-      signature: sig,
+      payload,
+      signature: sign(payload, SECRET),
       secret: SECRET,
-      timestamp: String(fourMinAgo),
+      timestamp: fourMinAgo,
       toleranceMs: 5 * 60 * 1000,
       now: () => now
     });
@@ -131,5 +141,44 @@ describe('verifyWebhook - timestamp tolerance', () => {
     });
     expect(r.valid).toBe(false);
     expect(r.reason).toBe('malformed');
+  });
+
+  it('rejects replay with a fresh header and an old signed payload timestamp', () => {
+    const oldTimestamp = '2023-11-14T22:03:20.000Z';
+    const freshTimestamp = '2023-11-14T22:13:20.000Z';
+    const payload = JSON.stringify({ eventId: 'evt_123', timestamp: oldTimestamp, data: {} });
+    const r = verifyWebhook({
+      payload,
+      signature: sign(payload, SECRET),
+      secret: SECRET,
+      timestamp: freshTimestamp,
+      now: () => Date.parse(freshTimestamp)
+    });
+
+    expect(r).toEqual({ valid: false, reason: 'timestamp_mismatch' });
+  });
+
+  it('rejects a timestamp header when the signed payload has no timestamp', () => {
+    const payload = JSON.stringify({ eventId: 'evt_123', data: {} });
+    const r = verifyWebhook({
+      payload,
+      signature: sign(payload, SECRET),
+      secret: SECRET,
+      timestamp: '2023-11-14T22:13:20.000Z'
+    });
+
+    expect(r).toEqual({ valid: false, reason: 'timestamp_mismatch' });
+  });
+
+  it('rejects non-JSON signed content when timestamp verification is requested', () => {
+    const payload = 'not-json';
+    const r = verifyWebhook({
+      payload,
+      signature: sign(payload, SECRET),
+      secret: SECRET,
+      timestamp: '2023-11-14T22:13:20.000Z'
+    });
+
+    expect(r).toEqual({ valid: false, reason: 'malformed' });
   });
 });

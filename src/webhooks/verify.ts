@@ -24,8 +24,8 @@ export interface VerifyWebhookOptions {
   // Optional max age. Defaults to 5 minutes when timestamp is provided.
   toleranceMs?: number;
   // Optional X-Webhook-Timestamp header, as delivered: an ISO instant.
-  // When set with toleranceMs we also
-  // reject payloads that drift too far in either direction.
+  // When set, the signed JSON payload must contain the exact same `timestamp`
+  // value. We also reject payloads that drift too far in either direction.
   timestamp?: string;
   // Override Date.now for testing. Internal.
   now?: () => number;
@@ -35,6 +35,7 @@ export type VerifyWebhookFailureReason =
   | 'invalid_signature'
   | 'timestamp_too_old'
   | 'timestamp_too_new'
+  | 'timestamp_mismatch'
   | 'malformed';
 
 export interface VerifyWebhookResult {
@@ -45,8 +46,8 @@ export interface VerifyWebhookResult {
 const DEFAULT_TOLERANCE_MS = 5 * 60 * 1000;
 
 // The header carries an ISO instant, which is what the delivery puts on the
-// wire. Epoch milliseconds are accepted too, since a receiver that already
-// normalised the value before calling should not be turned away for it.
+// wire. Epoch milliseconds are parseable too, but callers must pass the header
+// exactly as delivered so it remains equal to the signed payload timestamp.
 function parseTimestamp(value: string): number | null {
   const asNumber = Number(value);
   if (Number.isFinite(asNumber)) {
@@ -65,24 +66,6 @@ export function verifyWebhook(opts: VerifyWebhookOptions): VerifyWebhookResult {
   }
   if (opts.payload === undefined || opts.payload === null) {
     return { valid: false, reason: 'malformed' };
-  }
-
-  // Optional age check before HMAC. Cheap rejection saves a hash on stale
-  // payloads.
-  if (opts.timestamp !== undefined) {
-    const tolerance = opts.toleranceMs ?? DEFAULT_TOLERANCE_MS;
-    const ts = parseTimestamp(opts.timestamp);
-    if (ts === null) {
-      return { valid: false, reason: 'malformed' };
-    }
-    const now = (opts.now ?? Date.now)();
-    const diff = now - ts;
-    if (diff > tolerance) {
-      return { valid: false, reason: 'timestamp_too_old' };
-    }
-    if (diff < -tolerance) {
-      return { valid: false, reason: 'timestamp_too_new' };
-    }
   }
 
   const payloadBytes = typeof opts.payload === 'string'
@@ -113,6 +96,40 @@ export function verifyWebhook(opts: VerifyWebhookOptions): VerifyWebhookResult {
     return { valid: false, reason: 'invalid_signature' };
   }
 
-  const matches = timingSafeEqual(providedBuf, expectedBuf);
-  return matches ? { valid: true } : { valid: false, reason: 'invalid_signature' };
+  if (!timingSafeEqual(providedBuf, expectedBuf)) {
+    return { valid: false, reason: 'invalid_signature' };
+  }
+
+  if (opts.timestamp !== undefined) {
+    const tolerance = opts.toleranceMs ?? DEFAULT_TOLERANCE_MS;
+    const ts = parseTimestamp(opts.timestamp);
+    if (ts === null) {
+      return { valid: false, reason: 'malformed' };
+    }
+
+    let signedTimestamp: unknown;
+    try {
+      const parsed: unknown = JSON.parse(payloadBytes.toString('utf8'));
+      signedTimestamp = parsed && typeof parsed === 'object'
+        ? (parsed as Record<string, unknown>).timestamp
+        : undefined;
+    } catch {
+      return { valid: false, reason: 'malformed' };
+    }
+
+    if (typeof signedTimestamp !== 'string' || signedTimestamp !== opts.timestamp) {
+      return { valid: false, reason: 'timestamp_mismatch' };
+    }
+
+    const now = (opts.now ?? Date.now)();
+    const diff = now - ts;
+    if (diff > tolerance) {
+      return { valid: false, reason: 'timestamp_too_old' };
+    }
+    if (diff < -tolerance) {
+      return { valid: false, reason: 'timestamp_too_new' };
+    }
+  }
+
+  return { valid: true };
 }

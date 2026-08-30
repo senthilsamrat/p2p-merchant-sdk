@@ -222,9 +222,11 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
 });
 ```
 
-Constant-time HMAC comparison. Length-mismatched signatures are rejected
-without invoking `timingSafeEqual` so timing leaks via buffer length cannot
-occur.
+Constant-time HMAC comparison. When the timestamp header is supplied, the
+verifier also requires it to exactly match the `timestamp` field in the signed
+JSON payload before applying the freshness window. This prevents an old signed
+payload from being replayed with a newly forged timestamp header. Length-
+mismatched signatures are rejected without invoking `timingSafeEqual`.
 
 Get or rotate the webhook secret via the SDK:
 

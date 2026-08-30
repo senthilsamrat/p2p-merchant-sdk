@@ -29,7 +29,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+          # Manual releases resolve the tag locally after fetching all refs.
+          # This prevents a same-named mutable branch from satisfying the input.
+          fetch-depth: 0
+
+      - name: Resolve immutable release tag
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}"
+          if ! git show-ref --verify --quiet "refs/tags/$TAG"; then
+            echo "::error::Release tag does not exist: $TAG"
+            exit 1
+          fi
+          git checkout --detach "refs/tags/$TAG"
+          echo "Publishing immutable tag $TAG at $(git rev-parse HEAD)"
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -70,7 +82,12 @@ jobs:
       - name: Publish to npm with provenance
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
-          if [[ "$PKG_VERSION" == *-* ]]; then DIST_TAG=beta; else DIST_TAG=latest; fi
+          MAJOR_VERSION=${PKG_VERSION%%.*}
+          if [ "$MAJOR_VERSION" = "0" ] || [[ "$PKG_VERSION" == *-* ]]; then
+            DIST_TAG=beta
+          else
+            DIST_TAG=latest
+          fi
           npm publish --provenance --access public --tag "$DIST_TAG"
 
       - name: Print published version

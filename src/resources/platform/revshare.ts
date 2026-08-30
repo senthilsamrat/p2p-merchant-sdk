@@ -285,7 +285,8 @@ export class RevshareResource {
    * Useful to validate signature verification on the consumer side.
    *
    * @param opts - Per-request transport overrides.
-   * @returns Delivery result with status code and response body.
+   * @returns Synthetic event type, dispatch acknowledgement, latency, and
+   * human-readable verification guidance from merchant-service.
    */
   async testWebhook(opts: RequestOptions = {}): Promise<RevshareWebhookTestResult> {
     return this.http.request<RevshareWebhookTestResult>(

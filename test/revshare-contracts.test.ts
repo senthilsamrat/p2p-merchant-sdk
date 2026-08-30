@@ -158,4 +158,18 @@ describe('revshare merchant-service contracts', () => {
       '/api/v1/merchant/revshare/payouts?limit=25&cursor=payout_0'
     );
   });
+
+  it('returns the service webhook-test acknowledgement shape', async () => {
+    const response = {
+      delivered: true,
+      eventType: 'merchant.revshare.commission.earned',
+      latencyMs: 42,
+      detail: 'synthetic event dispatched; check WebhookLog or your endpoint'
+    } as const;
+    const webhook = clientWithResponse(response);
+
+    await expect(webhook.client.platform.revshare.testWebhook()).resolves.toEqual(response);
+    expect(webhook.requests[0].method).toBe('POST');
+    expect(webhook.requests[0].url).toBe('/api/v1/merchant/revshare/webhooks/test');
+  });
 });

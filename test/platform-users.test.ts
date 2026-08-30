@@ -54,7 +54,18 @@ function buildClient() {
           }
         : cfg.url?.includes('/wallet/balance')
           ? { balances: [] }
-          : { ok: true };
+          : cfg.url === '/api/v1/merchant/account'
+            ? {
+                merchantId: 'merchant_test',
+                tier: 'business',
+                status: 'active',
+                expressEligible: true,
+                expressAvailable: true,
+                kycStatus: 'approved',
+                permissions: ['account:read'],
+                createdAt: '2026-08-29T00:00:00.000Z'
+              }
+            : { ok: true };
       return { status: 200, headers: {}, data: JSON.stringify(body) };
     }),
     get: vi.fn(async () => ({

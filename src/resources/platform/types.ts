@@ -522,9 +522,9 @@ export interface ReconciliationFinding {
 
 export interface RevshareWebhookTestResult {
   delivered: boolean;
-  statusCode?: number;
+  eventType: 'merchant.revshare.commission.earned';
   latencyMs: number;
-  errorMessage?: string;
+  detail: string;
 }
 
 export interface PaginatedPlatform<T> {

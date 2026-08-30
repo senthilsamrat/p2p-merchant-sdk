@@ -7,20 +7,23 @@ import type { HttpTransport } from '../../transport/httpTransport.js';
 import type { RequestOptions } from '../../types/common.js';
 import type {
   ConfigProposal,
-  EnterpriseMerchantConfig,
+  ConfigHistoryPage,
+  ConfigProposalsPage,
+  CreateConfigProposalResponse,
   GetEarningsOptions,
   ListConfigHistoryOptions,
   ListPayoutsOptions,
   ListProposalsOptions,
   ListRewardsOptions,
-  PaginatedPlatform,
   PreviewConfigInput,
   PreviewConfigResponse,
   ProposeConfigChangeInput,
-  ReconciliationFinding,
+  ReconciliationResponse,
+  RevshareConfig,
   RevshareEarnings,
   RevsharePayout,
-  RevshareReward,
+  RevsharePayoutsPage,
+  RevshareRewardsPage,
   RevshareWebhookTestResult
 } from './types.js';
 
@@ -33,10 +36,10 @@ export class RevshareResource {
    * Returns the active revshare configuration for the calling SaaS platform.
    *
    * @param opts - Per-request transport overrides.
-   * @returns The current EnterpriseMerchantConfig with split percentages, payout schedule, and version.
+   * @returns The current config, or a `configured: false` shell when no config exists.
    */
-  async getConfig(opts: RequestOptions = {}): Promise<EnterpriseMerchantConfig> {
-    return this.http.request<EnterpriseMerchantConfig>(
+  async getConfig(opts: RequestOptions = {}): Promise<RevshareConfig> {
+    return this.http.request<RevshareConfig>(
       { method: 'GET', path: `${BASE}/config` },
       opts
     );
@@ -52,10 +55,8 @@ export class RevshareResource {
   async getConfigHistory(
     opts: ListConfigHistoryOptions = {},
     requestOpts: RequestOptions = {}
-  ): Promise<PaginatedPlatform<EnterpriseMerchantConfig>> {
-    const raw = await this.http.request<
-      EnterpriseMerchantConfig[] | PaginatedPlatform<EnterpriseMerchantConfig>
-    >(
+  ): Promise<ConfigHistoryPage> {
+    return this.http.request<ConfigHistoryPage>(
       {
         method: 'GET',
         path: `${BASE}/config/history`,
@@ -63,7 +64,6 @@ export class RevshareResource {
       },
       requestOpts
     );
-    return normalizePlatformPage(raw, opts.limit);
   }
 
   /**
@@ -99,12 +99,8 @@ export class RevshareResource {
   async createProposal(
     input: ProposeConfigChangeInput,
     opts: RequestOptions = {}
-  ): Promise<{ proposalId: string; status: string; autoApplied: boolean }> {
-    return this.http.request<{
-      proposalId: string;
-      status: string;
-      autoApplied: boolean;
-    }>(
+  ): Promise<CreateConfigProposalResponse> {
+    return this.http.request<CreateConfigProposalResponse>(
       { method: 'POST', path: `${BASE}/config/proposals`, body: input },
       opts
     );
@@ -120,10 +116,8 @@ export class RevshareResource {
   async listProposals(
     opts: ListProposalsOptions = {},
     requestOpts: RequestOptions = {}
-  ): Promise<PaginatedPlatform<ConfigProposal>> {
-    const raw = await this.http.request<
-      ConfigProposal[] | PaginatedPlatform<ConfigProposal>
-    >(
+  ): Promise<ConfigProposalsPage> {
+    return this.http.request<ConfigProposalsPage>(
       {
         method: 'GET',
         path: `${BASE}/config/proposals`,
@@ -135,7 +129,6 @@ export class RevshareResource {
       },
       requestOpts
     );
-    return normalizePlatformPage(raw, opts.limit);
   }
 
   /**
@@ -159,9 +152,6 @@ export class RevshareResource {
   /**
    * Withdraws a proposal before it is approved or rejected.
    *
-   * Idempotent: withdrawing a previously withdrawn proposal returns the
-   * same response.
-   *
    * @param proposalId - Proposal identifier.
    * @param opts - Per-request transport overrides.
    * @returns `{ status: 'withdrawn' }`.
@@ -169,11 +159,11 @@ export class RevshareResource {
   async withdrawProposal(
     proposalId: string,
     opts: RequestOptions = {}
-  ): Promise<{ status: 'withdrawn' }> {
-    return this.http.request<{ status: 'withdrawn' }>(
+  ): Promise<{ proposalId: string; status: 'withdrawn' }> {
+    return this.http.request<{ proposalId: string; status: 'withdrawn' }>(
       {
-        method: 'POST',
-        path: `${BASE}/config/proposals/${encodeURIComponent(proposalId)}/withdraw`
+        method: 'DELETE',
+        path: `${BASE}/config/proposals/${encodeURIComponent(proposalId)}`
       },
       opts
     );
@@ -194,7 +184,7 @@ export class RevshareResource {
       {
         method: 'GET',
         path: `${BASE}/earnings`,
-        query: { from: opts.from, to: opts.to, currency: opts.currency }
+        query: { from: opts.from, to: opts.to }
       },
       requestOpts
     );
@@ -203,27 +193,24 @@ export class RevshareResource {
   /**
    * Lists per-trade revshare rewards.
    *
-   * @param opts - Filters: `status`, `from`, `to`, pagination `limit` and `cursor`.
+   * @param opts - Filters: `from`, `to`, pagination `limit` and `cursor`.
    * @param requestOpts - Per-request transport overrides.
    * @returns A page of reward records ordered newest-first.
    */
   async listRewards(
     opts: ListRewardsOptions = {},
     requestOpts: RequestOptions = {}
-  ): Promise<PaginatedPlatform<RevshareReward>> {
+  ): Promise<RevshareRewardsPage> {
     // Per-trade rewards live under the /earnings sub-tree on the
     // merchant-service; the route is mounted at
     // /api/v1/merchant/revshare/earnings/rewards. Keeping the path here
     // aligned with the server mount so SaaS integrators do not have to
     // discover the extra /earnings segment by trial and error.
-    const raw = await this.http.request<
-      RevshareReward[] | PaginatedPlatform<RevshareReward>
-    >(
+    return this.http.request<RevshareRewardsPage>(
       {
         method: 'GET',
         path: `${BASE}/earnings/rewards`,
         query: {
-          status: opts.status,
           from: opts.from,
           to: opts.to,
           limit: opts.limit,
@@ -232,37 +219,30 @@ export class RevshareResource {
       },
       requestOpts
     );
-    return normalizePlatformPage(raw, opts.limit);
   }
 
   /**
    * Lists revshare payout batches.
    *
-   * @param opts - Filters: `status`, `from`, `to`, pagination `limit` and `cursor`.
+   * @param opts - Pagination `limit` and `cursor`.
    * @param requestOpts - Per-request transport overrides.
    * @returns A page of payout records ordered newest-first.
    */
   async listPayouts(
     opts: ListPayoutsOptions = {},
     requestOpts: RequestOptions = {}
-  ): Promise<PaginatedPlatform<RevsharePayout>> {
-    const raw = await this.http.request<
-      RevsharePayout[] | PaginatedPlatform<RevsharePayout>
-    >(
+  ): Promise<RevsharePayoutsPage> {
+    return this.http.request<RevsharePayoutsPage>(
       {
         method: 'GET',
         path: `${BASE}/payouts`,
         query: {
-          status: opts.status,
-          from: opts.from,
-          to: opts.to,
           limit: opts.limit,
           cursor: opts.cursor
         }
       },
       requestOpts
     );
-    return normalizePlatformPage(raw, opts.limit);
   }
 
   /**
@@ -290,10 +270,10 @@ export class RevshareResource {
    * commission engine's expected splits. Investigate any non-empty result.
    *
    * @param opts - Per-request transport overrides.
-   * @returns Array of reconciliation findings (empty when books balance).
+   * @returns A `findings` envelope (with an empty array when books balance).
    */
-  async getReconciliation(opts: RequestOptions = {}): Promise<ReconciliationFinding[]> {
-    return this.http.request<ReconciliationFinding[]>(
+  async getReconciliation(opts: RequestOptions = {}): Promise<ReconciliationResponse> {
+    return this.http.request<ReconciliationResponse>(
       { method: 'GET', path: `${BASE}/reconciliation` },
       opts
     );
@@ -313,16 +293,4 @@ export class RevshareResource {
       opts
     );
   }
-}
-
-function normalizePlatformPage<T>(
-  raw: T[] | PaginatedPlatform<T>,
-  requestedLimit: number | undefined
-): PaginatedPlatform<T> {
-  if (Array.isArray(raw)) {
-    const items = raw;
-    const hasMore = requestedLimit !== undefined ? items.length >= requestedLimit : false;
-    return { items, hasMore };
-  }
-  return raw;
 }

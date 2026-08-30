@@ -332,66 +332,123 @@ export interface AddPaymentMethodInput {
   metadata?: Record<string, unknown>;
 }
 
-// Revshare reporting under /api/v1/merchant/revshare/*.
-export type FeeSplitTarget = 'merchant' | 'platform' | 'house';
-
-export interface FeeSplitLeg {
-  target: FeeSplitTarget;
-  basisPoints: number;
-  // String share of the trade fee that ends up at this target. Decimal.
-  amount?: string;
+// Revshare reporting under /api/v1/merchant/revshare/*. These shapes mirror
+// the merchant-service response DTOs rather than referral-service internals.
+export interface RevshareReferrer {
+  referrerId: string;
+  referrerEmail: string | null;
+  shareBps: number | null;
+  distributionPercentage: number | null;
+  status: string;
 }
 
 export interface EnterpriseMerchantConfig {
-  configId: string;
+  configured: true;
   merchantId: string;
   version: number;
-  effectiveAt: string;
-  splits: FeeSplitLeg[];
-  status: 'active' | 'pending_approval' | 'superseded';
-  approvedBy?: string;
+  contentHash: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  customMakerFeeBps: number | null;
+  customMakerFeeRate: number | null;
+  commissionType: 'percentage' | 'fixed';
+  commissionRateBps: number | null;
+  commissionPercentage: number | null;
+  fixedCommissionAmount: number | null;
+  referrers: RevshareReferrer[];
+  revenueSharePct: number | null;
+  payoutAddressMasked: string | null;
+  payoutCurrency: string | null;
+  minPayoutThreshold: number | null;
+  payoutCadence: 'daily' | 'weekly' | 'monthly' | null;
+}
+
+export interface UnconfiguredEnterpriseMerchantConfig {
+  configured: false;
+  merchantId: string;
+  revenueSharePct: number | null;
+  payoutAddressMasked: string | null;
+  payoutCurrency: string | null;
+  referrers: [];
+}
+
+export type RevshareConfig = EnterpriseMerchantConfig | UnconfiguredEnterpriseMerchantConfig;
+
+export interface RevshareConfigVersion {
+  version: number;
+  contentHash: string;
+  previousContentHash: string | null;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  supersededBy: string | null;
+  changeReason: string | null;
   createdAt: string;
 }
 
 export interface PreviewConfigInput {
   tradeAmount: string;
   tradeFee: string;
+  customMakerFeeBps?: number;
+  commissionType?: 'percentage' | 'fixed';
+  commissionRateBps?: number;
+  fixedCommissionAmount?: number;
+  referrers?: Array<{ referrerId: string; shareBps: number; status?: 'active' | 'inactive' }>;
 }
 
 export interface PreviewConfigResponse {
-  totalCommission: string;
-  breakdown: Array<{
-    target: FeeSplitTarget;
-    basisPoints: number;
+  tradeAmount: string;
+  tradeFee: string;
+  makerFee: string;
+  commissionPool: string;
+  distribution: Array<{
+    referrerId: string;
     amount: string;
+    shareBps: number | null;
+    percentage: number | null;
   }>;
 }
 
 export interface ProposeConfigChangeInput {
-  splits: FeeSplitLeg[];
-  effectiveAt?: string;
-  rationale?: string;
+  referrers: Array<{ referrerId: string; shareBps: number; status?: 'active' | 'inactive' }>;
+  commissionType: 'percentage' | 'fixed';
+  customMakerFeeBps?: number;
+  commissionRateBps?: number;
+  fixedCommissionAmount?: number;
+  changeReason?: string;
 }
 
-export interface ConfigProposal {
+export interface CreateConfigProposalResponse {
   proposalId: string;
+  status: string;
+  autoApplied: boolean;
+  effectiveFrom: string | null;
+  version: number | null;
+}
+
+export interface ConfigProposalSummary {
+  proposalId: string;
+  status: string;
+  autoApplied: boolean;
+  proposedAt: string;
+  decidedAt: string | null;
+  decidedBy: string | null;
+  changeReason: string | null;
+  cumulativeDeltaBps: number | null;
+}
+
+export interface ConfigProposal extends ConfigProposalSummary {
   merchantId: string;
-  status: 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'expired';
-  proposedSplits: FeeSplitLeg[];
-  proposedBy: string;
-  reviewedBy?: string;
-  rationale?: string;
-  rejectionReason?: string;
-  createdAt: string;
-  decidedAt?: string;
-  expiresAt?: string;
-  // True when the change took effect without manual review (within
-  // tier-defined auto-approve bounds).
-  autoApplied?: boolean;
+  proposed: {
+    customMakerFeeBps: number | null;
+    commissionType: 'percentage' | 'fixed' | null;
+    commissionRateBps: number | null;
+    fixedCommissionAmount: number | null;
+    referrers: RevshareReferrer[];
+  };
 }
 
 export interface ListProposalsOptions {
-  status?: ConfigProposal['status'];
+  status?: string;
   limit?: number;
   cursor?: string;
 }
@@ -404,34 +461,31 @@ export interface ListConfigHistoryOptions {
 export interface RevshareEarnings {
   windowFrom: string;
   windowTo: string;
-  currency: string;
-  totalEarned: string;
-  totalPaidOut: string;
-  pendingPayout: string;
-  clawbackTotal: string;
-  tradeCount: number;
+  totalEarnedUsdt: string;
+  totalPaidUsdt: string;
+  totalPendingUsdt: string;
+  breakdown: Array<{ currency: string; totalUsdt: string }>;
 }
 
 export interface GetEarningsOptions {
   from?: string;
   to?: string;
-  currency?: string;
 }
 
 export interface RevshareReward {
   rewardId: string;
   tradeId: string;
-  basisPoints: number;
-  amount: string;
+  escrowId: string | null;
+  commissionAmount: string;
   currency: string;
-  status: 'pending' | 'paid' | 'clawed_back';
-  earnedAt: string;
-  paidAt?: string;
-  payoutId?: string;
+  status: string;
+  referrerId: string;
+  createdAt: string;
+  completedAt: string | null;
+  clawedBackAt: string | null;
 }
 
 export interface ListRewardsOptions {
-  status?: RevshareReward['status'];
   from?: string;
   to?: string;
   limit?: number;
@@ -440,22 +494,18 @@ export interface ListRewardsOptions {
 
 export interface RevsharePayout {
   payoutId: string;
-  merchantId: string;
-  amount: string;
+  amountUsdt: string;
   currency: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  rewardCount: number;
-  windowFrom: string;
-  windowTo: string;
+  payoutTxHash: string | null;
+  payoutAddressMasked: string | null;
+  status: string;
+  paidAt: string | null;
   createdAt: string;
-  completedAt?: string;
-  failureReason?: string;
+  includedRewardIds?: string[];
+  failureReason?: string | null;
 }
 
 export interface ListPayoutsOptions {
-  status?: RevsharePayout['status'];
-  from?: string;
-  to?: string;
   limit?: number;
   cursor?: string;
 }
@@ -463,11 +513,11 @@ export interface ListPayoutsOptions {
 export interface ReconciliationFinding {
   findingId: string;
   type: string;
-  severity: 'info' | 'warning' | 'error';
+  severity: 'low' | 'medium' | 'high';
   description: string;
-  rewardId?: string;
-  payoutId?: string;
+  affectedTradeIds: string[];
   detectedAt: string;
+  status: 'open' | 'resolved';
 }
 
 export interface RevshareWebhookTestResult {
@@ -481,6 +531,34 @@ export interface PaginatedPlatform<T> {
   items: T[];
   hasMore: boolean;
   nextCursor?: string;
+}
+
+export interface ConfigHistoryPage {
+  versions: RevshareConfigVersion[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export interface ConfigProposalsPage {
+  proposals: ConfigProposalSummary[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export interface RevshareRewardsPage {
+  rewards: RevshareReward[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export interface RevsharePayoutsPage {
+  payouts: RevsharePayout[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export interface ReconciliationResponse {
+  findings: ReconciliationFinding[];
 }
 
 // SaaS quick-trade auto-match. Mirrors the consumer-facing /api/quick/*

@@ -277,20 +277,21 @@ describe('client.platform.revshare', () => {
   it('createProposal() POSTs the proposals path with body', async () => {
     const { client, captured } = buildClient();
     await client.platform.revshare.createProposal({
-      splits: [
-        { target: 'merchant', basisPoints: 4000 },
-        { target: 'platform', basisPoints: 4000 },
-        { target: 'house', basisPoints: 2000 }
-      ],
-      rationale: 'Q2 fee restructure'
+      referrers: [{ referrerId: 'ref_1', shareBps: 4000, status: 'active' }],
+      commissionType: 'percentage',
+      commissionRateBps: 2500,
+      changeReason: 'Q2 fee restructure'
     });
     const req = captured[0];
     expect(req.method).toBe('POST');
     expect(req.url).toBe('/api/v1/merchant/revshare/config/proposals');
     expect(req.headers?.['Idempotency-Key']).toMatch(/^[0-9a-f]{32}$/);
     const parsed = JSON.parse(req.data as string);
-    expect(parsed.splits).toHaveLength(3);
-    expect(parsed.rationale).toBe('Q2 fee restructure');
+    expect(parsed.referrers).toEqual([
+      { referrerId: 'ref_1', shareBps: 4000, status: 'active' }
+    ]);
+    expect(parsed.commissionType).toBe('percentage');
+    expect(parsed.changeReason).toBe('Q2 fee restructure');
   });
 
   it('testWebhook() POSTs the test path', async () => {

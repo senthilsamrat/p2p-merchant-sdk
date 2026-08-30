@@ -53,6 +53,11 @@ pin `~0.2.1-beta` if you want to opt out of incidental changes.
 
 ### Fixed
 
+- Revshare request and response types now match the merchant-service contract:
+  proposal creation uses referrers and commission fields, withdrawal uses the
+  `DELETE` route, list methods preserve their service collection envelopes,
+  and reconciliation preserves its `findings` envelope. Unsupported reward,
+  payout, and earnings filters are no longer exposed.
 - Trade chat is served by a different service from the rest of the trade
   surface and is now reached under its own path.
 - Webhook signature verification parses the ISO instant the delivery puts on

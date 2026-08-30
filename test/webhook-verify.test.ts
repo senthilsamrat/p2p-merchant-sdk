@@ -6,10 +6,11 @@ import { createHmac } from 'node:crypto';
 import { verifyWebhook } from '../src/webhooks/verify.js';
 
 const SECRET = 'whsec_test_supersecret';
+const TIMESTAMP = '2023-11-14T22:13:20.000Z';
 const PAYLOAD = JSON.stringify({
   id: 'evt_123',
   type: 'merchant.trade.completed',
-  timestamp: '2023-11-14T22:13:20.000Z',
+  timestamp: TIMESTAMP,
   data: { tradeId: 't_1' }
 });
 
@@ -29,7 +30,13 @@ function payloadAt(timestamp: string): string {
 describe('verifyWebhook - happy path', () => {
   it('returns valid:true for a correct signature', () => {
     const sig = sign(PAYLOAD, SECRET);
-    const r = verifyWebhook({ payload: PAYLOAD, signature: sig, secret: SECRET });
+    const r = verifyWebhook({
+      payload: PAYLOAD,
+      signature: sig,
+      secret: SECRET,
+      timestamp: TIMESTAMP,
+      now: () => Date.parse(TIMESTAMP)
+    });
     expect(r.valid).toBe(true);
     expect(r.reason).toBeUndefined();
   });
@@ -37,7 +44,13 @@ describe('verifyWebhook - happy path', () => {
   it('accepts a Buffer payload', () => {
     const buf = Buffer.from(PAYLOAD, 'utf8');
     const sig = sign(PAYLOAD, SECRET);
-    const r = verifyWebhook({ payload: buf, signature: sig, secret: SECRET });
+    const r = verifyWebhook({
+      payload: buf,
+      signature: sig,
+      secret: SECRET,
+      timestamp: TIMESTAMP,
+      now: () => Date.parse(TIMESTAMP)
+    });
     expect(r.valid).toBe(true);
   });
 });
@@ -46,14 +59,14 @@ describe('verifyWebhook - tampered payload', () => {
   it('rejects when the payload was modified after signing', () => {
     const sig = sign(PAYLOAD, SECRET);
     const tampered = PAYLOAD.replace('tradeId', 'tradeID');
-    const r = verifyWebhook({ payload: tampered, signature: sig, secret: SECRET });
+    const r = verifyWebhook({ payload: tampered, signature: sig, secret: SECRET, timestamp: TIMESTAMP });
     expect(r.valid).toBe(false);
     expect(r.reason).toBe('invalid_signature');
   });
 
   it('rejects when the signature was computed with a different secret', () => {
     const wrongSig = sign(PAYLOAD, 'whsec_other_secret');
-    const r = verifyWebhook({ payload: PAYLOAD, signature: wrongSig, secret: SECRET });
+    const r = verifyWebhook({ payload: PAYLOAD, signature: wrongSig, secret: SECRET, timestamp: TIMESTAMP });
     expect(r.valid).toBe(false);
     expect(r.reason).toBe('invalid_signature');
   });
@@ -64,26 +77,43 @@ describe('verifyWebhook - length-mismatched signature', () => {
     const r = verifyWebhook({
       payload: PAYLOAD,
       signature: 'deadbeef',
-      secret: SECRET
+      secret: SECRET,
+      timestamp: TIMESTAMP
     });
     expect(r.valid).toBe(false);
     expect(r.reason).toBe('invalid_signature');
   });
 
   it('returns malformed when secret is empty', () => {
-    const r = verifyWebhook({ payload: PAYLOAD, signature: 'a'.repeat(64), secret: '' });
+    const r = verifyWebhook({
+      payload: PAYLOAD,
+      signature: 'a'.repeat(64),
+      secret: '',
+      timestamp: TIMESTAMP
+    });
     expect(r.valid).toBe(false);
     expect(r.reason).toBe('malformed');
   });
 
   it('returns malformed when signature is empty', () => {
-    const r = verifyWebhook({ payload: PAYLOAD, signature: '', secret: SECRET });
+    const r = verifyWebhook({ payload: PAYLOAD, signature: '', secret: SECRET, timestamp: TIMESTAMP });
     expect(r.valid).toBe(false);
     expect(r.reason).toBe('malformed');
   });
 });
 
 describe('verifyWebhook - timestamp tolerance', () => {
+  it('rejects when the timestamp header is missing', () => {
+    const r = verifyWebhook({
+      payload: PAYLOAD,
+      signature: sign(PAYLOAD, SECRET),
+      secret: SECRET,
+      timestamp: undefined as unknown as string
+    });
+
+    expect(r).toEqual({ valid: false, reason: 'malformed' });
+  });
+
   it('rejects when timestamp is older than tolerance', () => {
     const now = 1_700_000_000_000;
     const tenMinAgo = new Date(now - 10 * 60 * 1000).toISOString();

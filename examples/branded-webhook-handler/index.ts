@@ -29,8 +29,8 @@ app.post('/webhook', (req: Request, res: Response) => {
   const timestamp = req.header('X-Webhook-Timestamp');
   const secret = process.env.WEBHOOK_SECRET;
 
-  if (!signature || !secret) {
-    res.status(400).json({ error: 'missing_signature_or_secret' });
+  if (!signature || !timestamp || !secret) {
+    res.status(400).json({ error: 'missing_signature_timestamp_or_secret' });
     return;
   }
 
@@ -39,7 +39,7 @@ app.post('/webhook', (req: Request, res: Response) => {
     payload: body,
     signature,
     secret,
-    timestamp: timestamp ?? undefined
+    timestamp
   });
 
   if (!result.valid) {

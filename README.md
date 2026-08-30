@@ -207,11 +207,14 @@ Verify incoming webhooks without pulling axios into your handler:
 import { verifyWebhook } from '@plantmewallet/merchant-sdk/webhooks';
 
 app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  const timestamp = req.header('x-webhook-timestamp');
+  if (!timestamp) return res.status(400).send('missing_timestamp');
+
   const result = verifyWebhook({
     payload: req.body,
     signature: req.header('x-webhook-signature') ?? '',
     secret: process.env.MERCHANT_WEBHOOK_SECRET!,
-    timestamp: req.header('x-webhook-timestamp') ?? undefined
+    timestamp
   });
 
   if (!result.valid) {
@@ -222,11 +225,12 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
 });
 ```
 
-Constant-time HMAC comparison. When the timestamp header is supplied, the
-verifier also requires it to exactly match the `timestamp` field in the signed
-JSON payload before applying the freshness window. This prevents an old signed
-payload from being replayed with a newly forged timestamp header. Length-
-mismatched signatures are rejected without invoking `timingSafeEqual`.
+Constant-time HMAC comparison. The timestamp header is required, and the
+verifier requires it to exactly match the `timestamp` field in the signed JSON
+payload before applying the freshness window. This prevents an old signed
+payload from being replayed with either a newly forged or omitted timestamp
+header. Length-mismatched signatures are rejected without invoking
+`timingSafeEqual`.
 
 Get or rotate the webhook secret via the SDK:
 

@@ -21,7 +21,6 @@ import type {
   UpdateOrderInput
 } from '../../types/common.js';
 import type {
-  AddPaymentMethodInput,
   CreatePlatformUserInput,
   DepositAddress,
   DepositAddressInput,
@@ -298,11 +297,12 @@ export class UserScopedClient {
     input: SoftDeleteUserInput = {},
     opts: RequestOptions = {}
   ): Promise<void> {
+    const reason = input.reason ?? input.deletionReason;
     await this.http.request<void>(
       {
         method: 'DELETE',
         path: `${BASE}/${encodeURIComponent(this.userId)}`,
-        body: input
+        body: reason === undefined ? {} : { reason }
       },
       withActingUser(opts, this.userId)
     );
@@ -931,8 +931,8 @@ export class ScopedWalletResource {
   }
 }
 
-// Per-end-user payment methods. The platform owns these on behalf of its
-// end-users; add/list/remove flow through the X-PM-Acting-User header.
+// Per-end-user payment methods. merchant-service currently exposes this as a
+// read-only surface; mutations are intentionally absent until routes ship.
 export class ScopedPaymentMethodsResource {
   constructor(
     private readonly http: HttpTransport,
@@ -962,49 +962,6 @@ export class ScopedPaymentMethodsResource {
     );
   }
 
-  /**
-   * Adds a payment method to this end-user's account.
-   *
-   * NOT YET SERVED. merchant-service exposes only GET /payment-methods, so
-   * this call reaches no handler and fails at the routing layer. It stays
-   * declared because the shape is settled and callers should not have to
-   * change their code once the endpoint ships.
-   *
-   * @param input - Payment method type, account details, optional metadata.
-   * @param opts - Per-request transport overrides.
-   * @returns The created payment method (account number returned masked).
-   */
-  async add(
-    input: AddPaymentMethodInput,
-    opts: RequestOptions = {}
-  ): Promise<ScopedPaymentMethod> {
-    return this.http.request<ScopedPaymentMethod>(
-      { method: 'POST', path: '/api/v1/merchant/payment-methods', body: input },
-      withActingUser(opts, this.userId)
-    );
-  }
-
-  /**
-   * Removes a payment method from this end-user's account.
-   *
-   * NOT YET SERVED. merchant-service exposes only GET /payment-methods, so
-   * this call reaches no handler and fails at the routing layer. It stays
-   * declared because the shape is settled and callers should not have to
-   * change their code once the endpoint ships.
-   *
-   * @param paymentMethodId - Payment method identifier.
-   * @param opts - Per-request transport overrides.
-   * @throws NotFoundError when the payment method id is unknown.
-   */
-  async remove(paymentMethodId: string, opts: RequestOptions = {}): Promise<void> {
-    await this.http.request<void>(
-      {
-        method: 'DELETE',
-        path: `/api/v1/merchant/payment-methods/${encodeURIComponent(paymentMethodId)}`
-      },
-      withActingUser(opts, this.userId)
-    );
-  }
 }
 
 // White-label KYC orchestration. start() returns a hosted page URL that the

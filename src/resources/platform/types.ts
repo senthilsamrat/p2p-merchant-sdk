@@ -55,6 +55,9 @@ export interface SuspendUserInput {
 }
 
 export interface SoftDeleteUserInput {
+  /** Audit reason forwarded to merchant-service and auth-service. */
+  reason?: string;
+  /** @deprecated Use `reason`. Retained as a compatibility alias. */
   deletionReason?: string;
 }
 
@@ -324,6 +327,10 @@ export interface PlatformFundUserResult {
   status: 'completed';
 }
 
+/**
+ * Reserved request shape for future payment-method mutation routes.
+ * The current scoped payment-method resource is read-only.
+ */
 export interface AddPaymentMethodInput {
   type: string;
   bank?: string;

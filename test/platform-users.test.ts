@@ -234,13 +234,30 @@ describe('client.platform.users(userId) lifecycle ops', () => {
     expect(req.headers?.['X-PM-Acting-User']).toBe('u1');
   });
 
-  it('softDelete() DELETEs the user path', async () => {
+  it('softDelete() maps the compatibility deletionReason alias to reason', async () => {
     const { client, captured } = buildClient();
     await client.platform.users('u1').softDelete({ deletionReason: 'GDPR right to erasure' });
     const req = captured[0];
     expect(req.method).toBe('DELETE');
     expect(req.url).toBe('/api/v1/merchant/users/u1');
     expect(req.headers?.['X-PM-Acting-User']).toBe('u1');
+    expect(JSON.parse(req.data as string)).toEqual({ reason: 'GDPR right to erasure' });
+  });
+
+  it('softDelete() sends the service-native reason field', async () => {
+    const { client, captured } = buildClient();
+    await client.platform.users('u1').softDelete({ reason: 'retention period elapsed' });
+    expect(JSON.parse(captured[0].data as string)).toEqual({
+      reason: 'retention period elapsed'
+    });
+  });
+
+  it('exposes payment methods as read-only until mutation routes exist', () => {
+    const { client } = buildClient();
+    const paymentMethods = client.platform.users('u1').paymentMethods as unknown as Record<string, unknown>;
+    expect(typeof paymentMethods.list).toBe('function');
+    expect(paymentMethods.add).toBeUndefined();
+    expect(paymentMethods.remove).toBeUndefined();
   });
 });
 

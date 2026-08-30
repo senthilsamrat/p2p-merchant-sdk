@@ -321,7 +321,7 @@ const proposal = await client.platform.revshare.createProposal({
 | `client.platform.users(uid).orders`    | `create`, `list`, `get`, `update`, `cancel`                                            |
 | `client.platform.users(uid).trades`    | `list`, `get`, `markPaymentSent`, `confirmPayment`, `cancel`, `switchMerchant`, `sendMessage` |
 | `client.platform.users(uid).wallet`    | `getBalance`, `getHolds`, `getLedger`, `transfer`, `withdraw`, `getDepositAddress`     |
-| `client.platform.users(uid).paymentMethods` | `list`, `add`, `remove`                                                           |
+| `client.platform.users(uid).paymentMethods` | `list` (mutations are not exposed until merchant-service routes are available)   |
 | `client.platform.users(uid).kyc`       | `start`, `get`                                                                         |
 | `client.platform.revshare`             | `getConfig`, `getConfigHistory`, `previewConfig`, `createProposal`, `listProposals`, `getProposal`, `withdrawProposal`, `getEarnings`, `listRewards`, `listPayouts`, `getPayout`, `getReconciliation`, `testWebhook` |
 

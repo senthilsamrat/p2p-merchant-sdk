@@ -7,6 +7,15 @@ and the package adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 The beta line (`0.x`) may still break public surface between minor versions;
 pin `~0.2.1-beta` if you want to opt out of incidental changes.
 
+## [Unreleased]
+
+### Fixed
+
+- `platform.users(uid).softDelete()` now sends the service-native `reason`
+  field. The previous `deletionReason` input remains as a deprecated alias.
+- Removed the unserved scoped payment-method `add` and `remove` methods; the
+  SDK now exposes only the `list` route merchant-service actually provides.
+
 ## [0.3.0-beta.0] - 2026-08-29
 
 ### Added

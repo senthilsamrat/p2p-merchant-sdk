@@ -7,6 +7,8 @@ import { ClockDriftTracker } from '../src/transport/recvWindow.js';
 import { DEFAULT_RETRY_CONFIG } from '../src/transport/retry.js';
 
 const servers: Server[] = [];
+const originalHttpProxy = process.env.HTTP_PROXY;
+const originalNoProxy = process.env.NO_PROXY;
 
 async function listen(handler: Parameters<typeof createServer>[0]): Promise<{
   server: Server;
@@ -21,6 +23,10 @@ async function listen(handler: Parameters<typeof createServer>[0]): Promise<{
 }
 
 afterEach(async () => {
+  if (originalHttpProxy === undefined) delete process.env.HTTP_PROXY;
+  else process.env.HTTP_PROXY = originalHttpProxy;
+  if (originalNoProxy === undefined) delete process.env.NO_PROXY;
+  else process.env.NO_PROXY = originalNoProxy;
   await Promise.all(servers.splice(0).map(
     (server) => new Promise<void>((resolve) => server.close(() => resolve()))
   ));
@@ -51,6 +57,39 @@ describe('transport URL policy', () => {
       skipInitialClockSample: true
     });
     expect(client.describe().baseUrl).toBe('http://api.example.test');
+  });
+
+  it('never proxies the plaintext loopback exception', async () => {
+    let targetHits = 0;
+    let proxyHits = 0;
+    const target = await listen((_req, res) => {
+      targetHits++;
+      res.setHeader('Content-Type', 'application/json');
+      res.end('{"ok":true}');
+    });
+    const proxy = await listen((_req, res) => {
+      proxyHits++;
+      res.statusCode = 502;
+      res.end();
+    });
+    process.env.HTTP_PROXY = proxy.url;
+    process.env.NO_PROXY = '';
+
+    const transport = new HttpTransport({
+      apiKey: 'pk_test',
+      hmacSecret: 'secret',
+      baseUrl: target.url.replace('127.0.0.1', 'localhost'),
+      recvWindowMs: 5000,
+      timeoutMs: 1000,
+      retry: { ...DEFAULT_RETRY_CONFIG, maxRetries: 0 },
+      clock: new ClockDriftTracker(),
+      userAgent: 'transport-safety-test'
+    });
+
+    await expect(transport.request({ method: 'GET', path: '/signed' }))
+      .resolves.toEqual({ ok: true });
+    expect(targetHits).toBe(1);
+    expect(proxyHits).toBe(0);
   });
 });
 

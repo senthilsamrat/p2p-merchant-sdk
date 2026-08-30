@@ -34,7 +34,7 @@ import {
 } from './retry.js';
 import { ClockDriftTracker, clampRecvWindow } from './recvWindow.js';
 import { buildProxyAgents } from './proxyAgent.js';
-import { assertSecureTransportUrl } from './urlSafety.js';
+import { assertSecureTransportUrl, isPlaintextLoopbackUrl } from './urlSafety.js';
 import {
   AuthenticationError,
   FUND_USER_ERROR_CODES,
@@ -98,6 +98,11 @@ export class HttpTransport {
     // payloads in cleartext); we wire dedicated CONNECT-tunnelling agents
     // and disable the bundled support via `proxy: false` to take over.
     const proxyAgents = buildProxyAgents({ targetUrl: config.baseUrl });
+    // Plaintext is permitted only for loopback development. Never let Axios
+    // route that exception through HTTP_PROXY, which would move signed
+    // credentials off-host in cleartext despite the URL appearing local.
+    const disableAxiosProxy =
+      proxyAgents.disableAxiosProxy || isPlaintextLoopbackUrl(config.baseUrl);
     this.httpsAgent = proxyAgents.httpsAgent;
     this.axios = axios.create({
       baseURL: config.baseUrl,
@@ -112,7 +117,7 @@ export class HttpTransport {
         Accept: 'application/json',
         'User-Agent': config.userAgent
       },
-      ...(proxyAgents.disableAxiosProxy ? { proxy: false as const } : {}),
+      ...(disableAxiosProxy ? { proxy: false as const } : {}),
       ...(proxyAgents.httpsAgent ? { httpsAgent: proxyAgents.httpsAgent } : {})
     });
   }

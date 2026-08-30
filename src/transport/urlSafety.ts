@@ -9,6 +9,16 @@ function isLoopbackHost(hostname: string): boolean {
     LOOPBACK_V4.test(normalized);
 }
 
+/** True only for plaintext HTTP/WS URLs whose URL hostname is loopback. */
+export function isPlaintextLoopbackUrl(input: string): boolean {
+  try {
+    const url = new URL(input);
+    return (url.protocol === 'http:' || url.protocol === 'ws:') && isLoopbackHost(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** Reject credential-bearing plaintext transport outside local development. */
 export function assertSecureTransportUrl(
   input: string,

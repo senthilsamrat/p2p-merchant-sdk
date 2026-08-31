@@ -64,6 +64,10 @@ pin `~0.2.1-beta` if you want to opt out of incidental changes.
 - `platform.wallet.fundUser` names the acting user, so the service runs its
   cross-tenant and account state gates against the recipient. Caller supplied
   headers are preserved.
+- The single-trade calls return the trade itself rather than the envelope it
+  arrives in, so `get`, `markPaymentSent`, `confirmPayment` and `cancel` give
+  back the value their signature declares instead of an object whose fields
+  are all undefined.
 
 ## [0.2.1-beta.0] - 2026-05-22
 

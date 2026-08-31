@@ -154,6 +154,46 @@ export interface WalletHold {
   expiresAt?: string;
 }
 
+// One movement of funds in the merchant's own wallet. Deposits, withdrawals
+// and transfers are rows of the same ledger, so `type` distinguishes them
+// rather than each having its own shape.
+export interface WalletTransaction {
+  id: string;
+  type: string;
+  // Which way the money moved, decided by the server from the entry type and
+  // the amount, so a caller never infers it from the sign of a number.
+  direction: 'in' | 'out';
+  // Decimal strings. These are BigNumber-safe on the server and a float parse
+  // loses precision once a balance grows, so they stay strings end to end.
+  //
+  // `amount` is the magnitude and is never negative. The server stores a
+  // withdrawal as a negative number and a transfer out as a positive one even
+  // though both move funds out, so the SDK strips the sign and leaves
+  // `direction` as the only thing that says which way the money went.
+  amount: string;
+  balanceAfter: string;
+  currency: string;
+  // Present when the movement came from that source, null otherwise. Use them
+  // to join a row back to whatever caused it.
+  tradeId: string | null;
+  escrowId: string | null;
+  withdrawalId: string | null;
+  depositId: string | null;
+  createdAt: string;
+}
+
+export interface ListWalletTransactionsOptions {
+  // Entry types to include. Omit for every type.
+  type?: string | string[];
+  currency?: string;
+  // ISO timestamps bounding the range.
+  from?: string;
+  to?: string;
+  // Server caps this at 200.
+  limit?: number;
+  cursor?: string;
+}
+
 export interface PaymentMethod {
   paymentMethodId: string;
   type: string;

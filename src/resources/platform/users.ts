@@ -736,6 +736,12 @@ export class ScopedWalletResource {
   /**
    * Lists ledger entries for this end-user.
    *
+   * Amounts arrive exactly as the server stores them, and the stored sign is
+   * not consistent between types: a withdrawal is negative while a transfer
+   * out is positive, though both move funds out. Read `direction` to decide
+   * which way the money went and take the magnitude of `amount`, or a running
+   * total drifts by twice each withdrawal.
+   *
    * @param opts - Filters: `currency`, `from`, `to`, pagination.
    * @param requestOpts - Per-request transport overrides.
    * @returns Paginated ledger entries with `hasMore` indicator.

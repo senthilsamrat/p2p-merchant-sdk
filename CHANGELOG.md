@@ -7,6 +7,43 @@ and the package adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 The beta line (`0.x`) may still break public surface between minor versions;
 pin `~0.2.1-beta` if you want to opt out of incidental changes.
 
+## [0.3.0-beta.1] - 2026-09-01
+
+### Added
+
+- `client.wallet.getTransactions()` reads the movements behind the merchant's
+  own balance. Deposits, withdrawals and transfers are rows of one ledger, so
+  `type` selects among them rather than each having its own call, and it takes
+  a comma separated list or an array. Also filters on `currency`, `from` and
+  `to`. Paging is by cursor because the ledger grows at the head and an offset
+  walk would skip or repeat rows as entries land mid-iteration. Requires the
+  `wallet:transactions:read` scope.
+- `WalletTransaction` and `ListWalletTransactionsOptions` are exported.
+
+### Fixed
+
+- `getTransactions()` returns `amount` as a magnitude. The service stores a
+  withdrawal negative and a transfer out positive though both move funds out,
+  so reading `direction` and `amount` together would subtract a negative and
+  gain the money it meant to deduct. `direction` is now the only thing that
+  says which way the funds went. The sign is dropped without parsing the
+  number, so a value wider than a double keeps every digit.
+- A `nextCursor` of `null` is reported as absent, so a `while (cursor)` walk
+  terminates on the last page.
+
+### Changed
+
+- `client.platform.users(uid).getLedger()` documents that entry amounts arrive
+  exactly as the service stores them and carry the same inconsistent sign.
+  Its behaviour is unchanged; read `direction` and take the magnitude.
+
+### Notes
+
+- `getTransactions()` needs merchant-service at a build that lists
+  `/wallet/transactions` as a tenant level route. Without it a key with
+  `scope=platform_users` is refused `X_PM_ACTING_USER_REQUIRED`. A key with
+  `scope=self` is unaffected.
+
 ## [0.3.0-beta.0] - 2026-08-29
 
 ### Added

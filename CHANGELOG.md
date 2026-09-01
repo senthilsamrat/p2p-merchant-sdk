@@ -5,7 +5,7 @@ All notable changes to `@plantmewallet/merchant-sdk` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the package adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The beta line (`0.x`) may still break public surface between minor versions;
-pin `~0.2.1-beta` if you want to opt out of incidental changes.
+pin `~0.3.0-beta` if you want to opt out of incidental changes.
 
 ## [0.3.0-beta.2] - 2026-09-02
 

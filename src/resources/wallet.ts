@@ -4,6 +4,8 @@
 import type { HttpTransport } from '../transport/httpTransport.js';
 import type {
   ListWalletTransactionsOptions,
+  VerifyTransferInput,
+  VerifyTransferResult,
   Paginated,
   RequestOptions,
   WalletBalance,
@@ -150,5 +152,55 @@ export class WalletResource {
       // the pagination helpers stop on a falsy cursor without a null check.
       nextCursor: envelope?.nextCursor ?? undefined
     };
+  }
+  /**
+   * Confirms a claimed internal transfer against the merchant's own ledger.
+   *
+   * A customer says money was sent and quotes what the receipt showed. This
+   * answers whether that matches, instead of paging the history and comparing
+   * by eye. Only internal transfers can be confirmed: no other movement has two
+   * parties who could disagree about it.
+   *
+   * `reference` takes either the full `referenceId` from a transaction row or
+   * the short code printed on the receipt. The short form is a lossy view of
+   * the same value, so a code matching more than one row is refused with
+   * `ambiguousReference` rather than resolved to a guess.
+   *
+   * `matched` is true only when the reference was found, the amount and any
+   * supplied counterparty agree, and the transfer actually settled. A transfer
+   * that failed never reads as money received.
+   *
+   * @param input - The claim: type, reference, and optionally counterparty and amount.
+   * @param requestOpts - Per-request transport overrides.
+   * @returns The verdict, each individual check, and the matching row.
+   * @throws AuthenticationError when the API key lacks `wallet:transactions:read`.
+   * @example
+   * const result = await client.wallet.verifyTransfer({
+   *   type: 'transfer_in',
+   *   reference: '#3A6W2S391R',
+   *   counterparty: 'alice',
+   *   amount: '653.50'
+   * });
+   * if (!result.matched && !result.counterpartyKnown) {
+   *   // The transfer exists but the ledger holds no name for the sender.
+   * }
+   */
+  async verifyTransfer(
+    input: VerifyTransferInput,
+    requestOpts: RequestOptions = {}
+  ): Promise<VerifyTransferResult> {
+    return this.http.request<VerifyTransferResult>(
+      {
+        method: 'POST',
+        path: `${BASE}/transfers/verify`,
+        body: {
+          type: input.type,
+          reference: input.reference,
+          ...(input.counterparty !== undefined ? { counterparty: input.counterparty } : {}),
+          ...(input.amount !== undefined ? { amount: input.amount } : {})
+        }
+      },
+      requestOpts
+    );
   }
 }

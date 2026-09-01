@@ -196,6 +196,105 @@ describe('client.wallet.getTransactions', () => {
     expect(net).toBe(60);
   });
 
+  // Both legs of a transfer carry the same referenceId. Without it a merchant
+  // sees two unrelated movements and cannot tell a paired transfer from two
+  // separate ones of the same size.
+  it('carries referenceId so a transfer can be paired', async () => {
+    const REF = 'internal-transfer:merchant-service:fund-user-f7f80ed9';
+    const { client } = buildClient({
+      transactions: [
+        { ...PAGE.transactions[0], id: 'le_out', type: 'transfer_out', direction: 'out', amount: '10', referenceId: REF },
+        { ...PAGE.transactions[0], id: 'le_in', type: 'transfer_in', direction: 'in', amount: '10', referenceId: REF }
+      ],
+      hasMore: false,
+      nextCursor: null
+    });
+    const page = await client.wallet.getTransactions();
+
+    expect(page.items[0].referenceId).toBe(REF);
+    expect(page.items[1].referenceId).toBe(REF);
+    // Same operation, different rows.
+    expect(page.items[0].id).not.toBe(page.items[1].id);
+  });
+
+  // The name is read from whichever side the row sits on, so a merchant sees
+  // who it sent to on its debit and who paid it on its credit.
+  it('names the counterparty on both legs of a transfer', async () => {
+    const { client } = buildClient({
+      transactions: [
+        { ...PAGE.transactions[0], type: 'transfer_out', direction: 'out', counterparty: 'alice' },
+        { ...PAGE.transactions[0], type: 'transfer_in', direction: 'in', counterparty: 'bob' }
+      ],
+      hasMore: false,
+      nextCursor: null
+    });
+    const page = await client.wallet.getTransactions();
+    expect(page.items[0].counterparty).toBe('alice');
+    expect(page.items[1].counterparty).toBe('bob');
+  });
+
+  // Under half of transfers carry a name, so absence is the normal case and
+  // must not read as an error.
+  it('reports counterparty as null when the row carries no name', async () => {
+    const { client } = buildClient({
+      transactions: [
+        { ...PAGE.transactions[0], type: 'transfer_out', direction: 'out', counterparty: null },
+        { ...PAGE.transactions[0], type: 'deposit', direction: 'in', counterparty: null }
+      ],
+      hasMore: false,
+      nextCursor: null
+    });
+    const page = await client.wallet.getTransactions();
+    expect(page.items[0].counterparty).toBe(null);
+    expect(page.items[1].counterparty).toBe(null);
+  });
+
+  // The sender is debited the gross and the recipient credited the net, so
+  // without the fee neither side can account for the difference.
+  it('reports the transfer fee on both legs', async () => {
+    const { client } = buildClient({
+      transactions: [
+        { ...PAGE.transactions[0], type: 'transfer_out', direction: 'out', amount: '1', fee: '0.01' },
+        { ...PAGE.transactions[0], type: 'transfer_in', direction: 'in', amount: '0.99', fee: '0.01' }
+      ],
+      hasMore: false,
+      nextCursor: null
+    });
+    const page = await client.wallet.getTransactions();
+
+    expect(page.items[0].fee).toBe('0.01');
+    expect(page.items[1].fee).toBe('0.01');
+    // Gross out, net in, and the difference accounted for.
+    expect(Number(page.items[0].amount) - Number(page.items[1].amount))
+      .toBeCloseTo(Number(page.items[0].fee), 8);
+  });
+
+  // A transfer that carried no fee, and every non-transfer type, report null.
+  // Absence says there was no fee rather than that nobody recorded one.
+  it('reports fee as null when none was charged', async () => {
+    const { client } = buildClient({
+      transactions: [
+        { ...PAGE.transactions[0], type: 'transfer_out', direction: 'out', amount: '10', fee: null },
+        { ...PAGE.transactions[0], type: 'deposit', direction: 'in', amount: '10', fee: null }
+      ],
+      hasMore: false,
+      nextCursor: null
+    });
+    const page = await client.wallet.getTransactions();
+    expect(page.items[0].fee).toBe(null);
+    expect(page.items[1].fee).toBe(null);
+  });
+
+  it('reports referenceId as null when the row carries none', async () => {
+    const { client } = buildClient({
+      transactions: [{ ...PAGE.transactions[0], referenceId: null }],
+      hasMore: false,
+      nextCursor: null
+    });
+    const page = await client.wallet.getTransactions();
+    expect(page.items[0].referenceId).toBe(null);
+  });
+
   it('keeps amounts as strings so precision is not lost', async () => {
     const { client } = buildClient({
       transactions: [

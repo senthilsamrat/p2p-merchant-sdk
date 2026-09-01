@@ -179,6 +179,22 @@ export interface WalletTransaction {
   escrowId: string | null;
   withdrawalId: string | null;
   depositId: string | null;
+  // The operation this row belongs to, carried on every entry type. Both legs
+  // of a transfer share one, so a debit can be matched to the credit that
+  // answered it. Two rows with the same value are two sides of one movement,
+  // not one movement listed twice.
+  referenceId: string | null;
+  // Display name of the other party on a transfer, read from whichever side
+  // this row sits on. Null on every other entry type, and null on a transfer
+  // whose writer did not record a name, which is a little under half of them,
+  // so treat its absence as normal rather than as an error.
+  counterparty: string | null;
+  // What the platform took on a transfer, as a decimal string. The sender is
+  // debited the gross and the recipient credited the net, and the fee itself
+  // lands on the platform wallet rather than either party's, so neither side
+  // could account for the difference without this. Null on a transfer that
+  // carried no fee and on every other entry type.
+  fee: string | null;
   createdAt: string;
 }
 
@@ -192,6 +208,49 @@ export interface ListWalletTransactionsOptions {
   // Server caps this at 200.
   limit?: number;
   cursor?: string;
+}
+
+export interface VerifyTransferInput {
+  // Which side of the transfer is being confirmed. The counterparty is the
+  // sender on a received transfer and the recipient on a sent one.
+  type: 'transfer_in' | 'transfer_out';
+  // Either the full referenceId from a transaction row, or the short code the
+  // receipt shows, with or without its leading hash.
+  reference: string;
+  // Optional. Omitted means the claim is not checked against a name.
+  counterparty?: string;
+  // Optional. Decimal string, matched against this side's own amount: the
+  // gross on a sent transfer, the net on a received one.
+  amount?: string;
+}
+
+export interface VerifyTransferResult {
+  // True only when every check below passed.
+  matched: boolean;
+  type: 'transfer_in' | 'transfer_out';
+  // The row's own settlement state, null when nothing matched the reference.
+  status: string | null;
+  // False when the ledger holds no name for the counterparty, which separates
+  // "we cannot say who sent it" from "somebody else sent it".
+  counterpartyKnown: boolean;
+  // True when a short receipt code matched more than one row. The claim is
+  // refused rather than resolved, because confirming a payment on a guess is
+  // worse than declining to answer.
+  ambiguousReference: boolean;
+  checks: {
+    referenceFound: boolean;
+    counterpartyMatches: boolean;
+    amountMatches: boolean;
+    confirmed: boolean;
+  };
+  transaction: {
+    id: string;
+    referenceId: string | null;
+    type: string;
+    amount: string;
+    currency: string;
+    createdAt: string;
+  } | null;
 }
 
 export interface PaymentMethod {

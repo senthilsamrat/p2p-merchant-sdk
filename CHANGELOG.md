@@ -7,6 +7,39 @@ and the package adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 The beta line (`0.x`) may still break public surface between minor versions;
 pin `~0.2.1-beta` if you want to opt out of incidental changes.
 
+## [0.3.0-beta.2] - 2026-09-02
+
+### Added
+
+- `client.wallet.verifyTransfer()` confirms a claimed internal transfer against
+  the merchant's own ledger. A customer says money was sent and quotes what the
+  receipt showed; this answers whether it matches. Takes either the
+  `referenceId` from a transaction row or the short code the receipt prints,
+  and reports each check rather than only the verdict, so a wrong figure can be
+  told from a wrong sender. An unsettled transfer never reads as money
+  received. Requires `wallet:transactions:read`.
+- `VerifyTransferInput` and `VerifyTransferResult` are exported.
+- `referenceId` on a transaction. Both legs of a transfer carry the same one,
+  so a debit can be matched to the credit that answered it.
+- `counterparty` on a transaction. The other party's display name on a
+  transfer, read from whichever side the row sits on. Null on every other type,
+  and null on a transfer whose writer recorded no name.
+- `fee` on a transaction. What the platform took. It is booked against the
+  platform wallet rather than either party's, so no row in a merchant's own
+  history accounts for the gap between what was sent and what arrived.
+
+### Notes
+
+- The receipt code is the last ten characters of the reference, so it is a
+  lossy view of it. A code matching more than one row is refused with
+  `ambiguousReference` rather than resolved. Pass the full `referenceId` when
+  you have it.
+- `counterpartyKnown` distinguishes "the ledger holds no name for the sender"
+  from "somebody else sent it". About half of received transfers carry no name.
+- `verifyTransfer` needs merchant-service at a build carrying the route. A key
+  with `scope=self` is unaffected by the tenant level table; one with
+  `scope=platform_users` needs the route listed there.
+
 ## [0.3.0-beta.1] - 2026-09-01
 
 ### Added

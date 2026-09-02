@@ -22,6 +22,8 @@ export type MessageType = 'text' | 'image_url';
 export interface MerchantAccount {
   merchantId: string;
   tier: MerchantTier;
+  accountType: 'direct_trader' | 'saas_platform';
+  apiKeyScope: 'self' | 'platform_users';
   status: 'active' | 'suspended' | 'pending';
   expressEligible: boolean;
   expressAvailable: boolean;

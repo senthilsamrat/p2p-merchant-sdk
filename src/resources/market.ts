@@ -104,7 +104,6 @@ export class MarketResource {
    * @param orderId - The merchant's order id to rank.
    * @param opts - Per-request transport overrides.
    * @returns Rank info with position, neighbouring offers, and competitive gap.
-   * @throws NotImplementedError when the endpoint is still stubbed.
    * @throws NotFoundError when the order id is unknown.
    */
   async getMyRank(orderId: string, opts: RequestOptions = {}): Promise<RankInfo> {

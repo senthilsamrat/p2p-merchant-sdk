@@ -252,9 +252,14 @@ const { secret } = await client.webhooks.regenerateSecret(); // returned ONCE
 | `client.platform`     | `users`, `revshare` (SaaS-tier only, see below)              |
 
 Some market and webhook helpers (`getActiveAds`, `getReferencePrice`,
-`getMyRank`, `webhooks.test`) currently return `NotImplementedError` (501)
+`webhooks.test`) currently return `NotImplementedError` (501)
 until the corresponding server stubs ship. The shape stays stable across
 the upgrade.
+
+`client.market.getMyRank(orderId)` ranks an active order against eligible ads
+on the same side and trading pair. SaaS platforms use
+`client.platform.users(userId).market.getMyRank(orderId)` so the request is
+scoped to the order owner and that platform's marketplace visibility rules.
 
 ## Platform usage (SaaS API keys)
 

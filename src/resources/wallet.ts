@@ -4,6 +4,8 @@
 import type { HttpTransport } from '../transport/httpTransport.js';
 import type {
   RequestOptions,
+  VerifyTransferInput,
+  VerifyTransferResult,
   WalletBalance,
   WalletHold
 } from '../types/common.js';
@@ -81,6 +83,29 @@ export class WalletResource {
     }
     return envelope.holds.map((hold, index) =>
       normalizeWalletHold(hold, `wallet holds response.holds[${index}]`)
+    );
+  }
+
+  /**
+   * Confirms a claimed internal transfer against the merchant's own ledger.
+   * The reference may be the full transfer reference or the short receipt code.
+   */
+  async verifyTransfer(
+    input: VerifyTransferInput,
+    requestOpts: RequestOptions = {}
+  ): Promise<VerifyTransferResult> {
+    return this.http.request<VerifyTransferResult>(
+      {
+        method: 'POST',
+        path: `${BASE}/transfers/verify`,
+        body: {
+          type: input.type,
+          reference: input.reference,
+          ...(input.counterparty !== undefined ? { counterparty: input.counterparty } : {}),
+          ...(input.amount !== undefined ? { amount: input.amount } : {})
+        }
+      },
+      requestOpts
     );
   }
 }

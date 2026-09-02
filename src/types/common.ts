@@ -208,6 +208,35 @@ export interface WalletHold {
   expiresAt: string | null;
 }
 
+export interface VerifyTransferInput {
+  type: 'transfer_in' | 'transfer_out';
+  reference: string;
+  counterparty?: string;
+  amount?: string;
+}
+
+export interface VerifyTransferResult {
+  matched: boolean;
+  type: 'transfer_in' | 'transfer_out';
+  status: string | null;
+  counterpartyKnown: boolean;
+  ambiguousReference: boolean;
+  checks: {
+    referenceFound: boolean;
+    counterpartyMatches: boolean;
+    amountMatches: boolean;
+    confirmed: boolean;
+  };
+  transaction: {
+    id: string;
+    referenceId: string | null;
+    type: string;
+    amount: string;
+    currency: string;
+    createdAt: string;
+  } | null;
+}
+
 export interface PaymentMethod {
   id: string;
   methodType: string;

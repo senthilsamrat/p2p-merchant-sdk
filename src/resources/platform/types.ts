@@ -363,23 +363,47 @@ export interface PreviewConfigResponse {
 }
 
 export interface ProposeConfigChangeInput {
-  splits: FeeSplitLeg[];
-  effectiveAt?: string;
-  rationale?: string;
+  customMakerFeeBps?: number;
+  commissionType: 'percentage' | 'fixed';
+  commissionRateBps?: number;
+  fixedCommissionAmount?: number;
+  referrers: Array<{
+    referrerId: string;
+    shareBps: number;
+    status?: 'active' | 'inactive';
+  }>;
+  changeReason: string;
 }
 
 export interface ConfigProposal {
   proposalId: string;
-  merchantId: string;
-  status: 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'expired';
-  proposedSplits: FeeSplitLeg[];
-  proposedBy: string;
-  reviewedBy?: string;
-  rationale?: string;
-  rejectionReason?: string;
-  createdAt: string;
-  decidedAt?: string;
-  expiresAt?: string;
+  merchantId?: string;
+  status:
+    | 'pending'
+    | 'pending_admin_review'
+    | 'auto_applied'
+    | 'approved'
+    | 'rejected'
+    | 'withdrawn'
+    | 'expired';
+  proposed?: {
+    customMakerFeeBps: number | null;
+    commissionType: 'percentage' | 'fixed' | null;
+    commissionRateBps: number | null;
+    fixedCommissionAmount: number | null;
+    referrers: Array<{
+      referrerId: string;
+      referrerEmail: string | null;
+      shareBps: number | null;
+      distributionPercentage: number | null;
+      status: 'active' | 'inactive';
+    }>;
+  };
+  proposedAt?: string;
+  decidedAt?: string | null;
+  decidedBy?: string | null;
+  changeReason?: string | null;
+  cumulativeDeltaBps?: number | null;
   // True when the change took effect without manual review (within
   // tier-defined auto-approve bounds).
   autoApplied?: boolean;

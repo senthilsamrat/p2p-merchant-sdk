@@ -172,8 +172,8 @@ export class RevshareResource {
   ): Promise<{ status: 'withdrawn' }> {
     return this.http.request<{ status: 'withdrawn' }>(
       {
-        method: 'POST',
-        path: `${BASE}/config/proposals/${encodeURIComponent(proposalId)}/withdraw`
+        method: 'DELETE',
+        path: `${BASE}/config/proposals/${encodeURIComponent(proposalId)}`
       },
       opts
     );

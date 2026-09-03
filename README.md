@@ -310,12 +310,12 @@ const earnings = await client.platform.revshare.getEarnings({
   to: '2026-04-01'
 });
 const proposal = await client.platform.revshare.createProposal({
-  splits: [
-    { target: 'merchant', basisPoints: 4000 },
-    { target: 'platform', basisPoints: 4000 },
-    { target: 'house', basisPoints: 2000 }
+  commissionType: 'percentage',
+  commissionRateBps: 10000,
+  referrers: [
+    { referrerId: 'user_abc', shareBps: 10000, status: 'active' }
   ],
-  rationale: 'Q2 fee restructure'
+  changeReason: 'Q2 fee restructure'
 });
 ```
 
